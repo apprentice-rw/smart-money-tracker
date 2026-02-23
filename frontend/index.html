@@ -498,7 +498,7 @@
 
     // ── Institution card ──────────────────────────────────────────────
 
-    function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown }) {
+    function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, collapsed, onCollapseToggle }) {
       const [filings, setFilings]           = useState([]);
       const [filingsError, setFilingsError] = useState(null);
       const [period, setPeriod]             = useState(null);
@@ -511,8 +511,7 @@
       const [holdingsLoading, setHLoading]  = useState(false);
       const [holdingsError, setHError]      = useState(null);
 
-      const [sortKey,   setSortKey]   = useState('value_desc');
-      const [collapsed, setCollapsed] = useState(false);
+      const [sortKey, setSortKey] = useState('value_desc');
 
       // Load available quarters
       useEffect(() => {
@@ -620,7 +619,7 @@
 
                 {/* Collapse / expand toggle */}
                 <button
-                  onClick={() => setCollapsed((c) => !c)}
+                  onClick={onCollapseToggle}
                   title={collapsed ? 'Expand' : 'Collapse'}
                   className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
                 >
@@ -848,8 +847,9 @@
         try { return JSON.parse(localStorage.getItem('smt_aum_map')) || {}; }
         catch { return {}; }
       });
-      const [draggingId, setDraggingId] = useState(null);
-      const [dragOverId, setDragOverId] = useState(null);
+      const [draggingId,   setDraggingId]   = useState(null);
+      const [dragOverId,   setDragOverId]   = useState(null);
+      const [collapsedMap, setCollapsedMap] = useState({});
 
       useEffect(() => {
         API.getInstitutions()
@@ -1000,6 +1000,19 @@
         localStorage.removeItem('smt_card_order');
       }
 
+      // ── Collapse helpers ────────────────────────────────────────────
+      function toggleCollapse(id) {
+        setCollapsedMap(prev => ({ ...prev, [id]: !prev[id] }));
+      }
+      function collapseAll() {
+        const next = {};
+        institutions.forEach(i => { next[i.id] = true; });
+        setCollapsedMap(next);
+      }
+      function expandAll() { setCollapsedMap({}); }
+      const allCollapsed = institutions.length > 0
+        && institutions.every(i => collapsedMap[i.id]);
+
       // ── Ordered institution list ───────────────────────────────────
       const orderedInsts = useMemo(() => {
         if (!institutions.length) return [];
@@ -1030,15 +1043,25 @@
                     SEC 13F filings · institutional position changes
                   </p>
                 </div>
-                <button
-                  onClick={resetOrder}
-                  title="Restore default order (AUM descending)"
-                  className="flex-shrink-0 mt-1 text-xs text-gray-400 hover:text-gray-700
-                             border border-gray-200 hover:border-gray-300 rounded-lg
-                             px-3 py-1.5 transition-colors bg-white shadow-sm"
-                >
-                  Reset Order
-                </button>
+                <div className="flex items-center gap-2 flex-shrink-0 mt-1">
+                  <button
+                    onClick={allCollapsed ? expandAll : collapseAll}
+                    className="text-xs text-gray-400 hover:text-gray-700
+                               border border-gray-200 hover:border-gray-300 rounded-lg
+                               px-3 py-1.5 transition-colors bg-white shadow-sm"
+                  >
+                    {allCollapsed ? 'Expand All' : 'Collapse All'}
+                  </button>
+                  <button
+                    onClick={resetOrder}
+                    title="Restore default order (AUM descending)"
+                    className="text-xs text-gray-400 hover:text-gray-700
+                               border border-gray-200 hover:border-gray-300 rounded-lg
+                               px-3 py-1.5 transition-colors bg-white shadow-sm"
+                  >
+                    Reset Order
+                  </button>
+                </div>
               </div>
             </header>
 
@@ -1098,6 +1121,8 @@
                           institution={inst}
                           onAumLoaded={(aum) => handleAumLoaded(inst.id, aum)}
                           onDragHandleMouseDown={(e) => handleHandleMouseDown(e, inst.id)}
+                          collapsed={!!collapsedMap[inst.id]}
+                          onCollapseToggle={() => toggleCollapse(inst.id)}
                         />
                       </CardErrorBoundary>
                     </div>
