@@ -24,6 +24,7 @@ INSTITUTIONS = {
     "Third Point": "0001040273",
     "Baupost Group": "0001061768",
     "Lone Pine Capital": "0001061165",
+    "H&H International Investment": "0001759760",
 }
 
 USER_AGENT = "SmartMoneyTracker research@example.com"
