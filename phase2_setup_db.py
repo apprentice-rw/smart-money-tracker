@@ -93,6 +93,17 @@ SCHEMA_STATEMENTS = [
     )
     """,
 
+    # cusip_ticker_map — permanent CUSIP→ticker cache (populated by cusip_lookup.py)
+    """
+    CREATE TABLE IF NOT EXISTS cusip_ticker_map (
+        cusip        TEXT PRIMARY KEY,
+        ticker       TEXT,
+        company_name TEXT,
+        source       TEXT,
+        fetched_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+
     # indexes
     "CREATE INDEX IF NOT EXISTS idx_holdings_cusip    ON holdings (cusip)",
     "CREATE INDEX IF NOT EXISTS idx_holdings_filing   ON holdings (filing_id)",
@@ -128,7 +139,8 @@ def wipe_db() -> None:
             db_path.unlink()
     else:
         with engine.connect() as conn:
-            for tbl in ("position_changes", "holdings", "filings", "institutions"):
+            for tbl in ("position_changes", "holdings", "filings", "institutions",
+                        "cusip_ticker_map"):
                 conn.execute(text(f"DROP TABLE IF EXISTS {tbl} CASCADE"))
             conn.commit()
         print("  Dropped all PostgreSQL tables for clean rebuild.")
@@ -534,6 +546,16 @@ def main() -> None:
         print(f"\n{'=' * 55}")
         print("  ETL complete — running verification ...")
         print_verification(conn)
+
+    # Resolve any new CUSIPs that aren't yet in the ticker cache
+    print(f"\n{'=' * 55}")
+    print("  Resolving new CUSIPs via OpenFIGI ...")
+    print(f"{'=' * 55}")
+    try:
+        from cusip_lookup import build_cusip_ticker_map
+        build_cusip_ticker_map(resolve_all=False)
+    except Exception as exc:
+        print(f"  WARNING: CUSIP lookup failed — run cusip_lookup.py manually. ({exc})")
 
 
 if __name__ == "__main__":

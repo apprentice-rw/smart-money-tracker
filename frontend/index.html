@@ -190,7 +190,7 @@
 
     function ChangeRow({ item, type, sortKey }) {
       const tickerMap = useContext(TickerCtx);
-      const ticker = tickerMap ? tickerMap.get(normalizeName(item.issuer_name)) : null;
+      const ticker = tickerMap ? tickerMap.get(item.cusip) : null;
 
       const isNew      = type === 'new';
       const isClosed   = type === 'closed';
@@ -371,7 +371,7 @@
                       </thead>
                       <tbody>
                         {data.holdings.map((h) => {
-                          const ticker = tickerMap ? tickerMap.get(normalizeName(h.issuer_name)) : null;
+                          const ticker = tickerMap ? tickerMap.get(h.cusip) : null;
                           const weight = data.total_value > 0
                             ? (h.value / data.total_value * 100).toFixed(1) + '%'
                             : '—';
@@ -819,14 +819,13 @@
           .catch((e) => setError(e.message));
       }, []);
 
-      // Fetch name→ticker map via our API proxy (SEC blocks direct browser fetches)
+      // Fetch CUSIP→ticker map from our API (populated by cusip_lookup.py)
       useEffect(() => {
         API.getTickers()
           .then((d) => {
             const map = new Map();
-            for (const [name, ticker] of Object.entries(d.tickers)) {
-              const key = normalizeName(name);
-              if (key && !map.has(key)) map.set(key, ticker);
+            for (const [cusip, ticker] of Object.entries(d.tickers)) {
+              if (cusip && ticker) map.set(cusip, ticker);
             }
             setTickerMap(map);
           })

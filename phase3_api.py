@@ -5,7 +5,6 @@ Also serves the React frontend as static files at /app.
 """
 
 import json
-import re
 import time
 import urllib.request
 from pathlib import Path
@@ -393,111 +392,22 @@ def search_holdings(
 
 
 # ---------------------------------------------------------------------------
-# GET /tickers — proxy SEC company ticker files, cache in memory
+# GET /tickers — read CUSIP→ticker map from DB (populated by cusip_lookup.py)
 # ---------------------------------------------------------------------------
 
 _ticker_cache: Optional[dict] = None
 _ticker_cache_ts: float = 0.0
 _TICKER_TTL = 3600  # seconds
 
-# Common abbreviations used in 13F filing names (abbrev → full word).
-# Applied when generating fallback keys so the backend pre-normalises SEC
-# full-form names down to the same tokens a 13F filer uses.
-_13F_ABBREVS = [
-    (re.compile(r'\bfinancial\b'), 'finl'),
-    (re.compile(r'\bpetroleum\b'), 'pete'),
-    (re.compile(r'\bmanufacturing\b'), 'mfg'),
-    (re.compile(r'\bcommunications\b'), 'commun'),
-    (re.compile(r'\bservices\b'), 'svcs'),
-]
-
-# Suffixes stripped when building normalised fallback keys.
-_SUFFIX_RE = re.compile(
-    r'\b(inc|corp|co|ltd|llc|plc|holdings|group|class [a-c]|cl [a-c]'
-    r'|del|com|adr|ads|ord|the|new)\b\.?'
-)
-
-
-def _norm_key(name: str) -> str:
-    """
-    Generate an aggressively-normalised key from a SEC company name.
-    Strips corporate suffixes, common qualifiers, then abbreviates high-frequency
-    words so the key matches what a 13F filer would write.
-    """
-    s = name.lower()
-    s = _SUFFIX_RE.sub('', s)
-    for pattern, abbrev in _13F_ABBREVS:
-        s = pattern.sub(abbrev, s)
-    s = re.sub(r'[^a-z0-9]', ' ', s)
-    return re.sub(r'\s+', ' ', s).strip()
-
-
-def _fetch_json_sec(url: str) -> dict:
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "SmartMoneyTracker research@example.com"}
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read())
-
-
-def _build_ticker_map() -> dict[str, str]:
-    """
-    Build name → ticker mapping from two SEC sources:
-      Primary   — company_tickers_exchange.json (exchange-listed)
-      Fallback 1 — company_tickers.json (broader, includes ETFs / OTC)
-    Then adds Fallback 2 entries: for every name in the combined map,
-    also stores an aggressively-normalised key (suffix-stripped + abbreviated)
-    so the frontend can match 13F filing names like "ALLY FINL INC" →
-    "ally finl" against the generated key "ally finl" (from "Ally Financial Inc").
-    """
-    tickers: dict[str, str] = {}
-
-    # Primary
-    data1 = _fetch_json_sec(
-        "https://www.sec.gov/files/company_tickers_exchange.json"
-    )
-    for row in data1.get("data", []):
-        _, name, ticker, _ = row
-        if name and ticker:
-            key = name.upper()
-            if key not in tickers:
-                tickers[key] = ticker
-
-    # Fallback 1 — broader list
-    time.sleep(0.15)
-    try:
-        data2 = _fetch_json_sec("https://www.sec.gov/files/company_tickers.json")
-        for entry in data2.values():
-            name   = entry.get("title", "")
-            ticker = entry.get("ticker", "")
-            if name and ticker:
-                key = name.upper()
-                if key not in tickers:
-                    tickers[key] = ticker
-    except Exception:
-        pass  # Fallback 1 is best-effort
-
-    # Fallback 2 — pre-normalised keys (abbreviation + suffix stripping)
-    extra: dict[str, str] = {}
-    for name, ticker in tickers.items():
-        norm = _norm_key(name)
-        if norm and norm not in tickers and norm not in extra:
-            extra[norm] = ticker
-    tickers.update(extra)
-
-    return tickers
-
 
 @app.get("/tickers", tags=["meta"])
 def get_tickers() -> dict:
     """
-    Returns a name → ticker mapping built from two SEC ticker files.
-    SEC does not send CORS headers so the frontend cannot fetch them directly.
-    Three-tier matching:
-      1. Primary SEC exchange file (exact normalised name)
-      2. Broader SEC company_tickers.json (ETFs, OTC)
-      3. Fallback normalised keys (strips DEL/CL A/ADR + abbreviates FINL/PETE/MFG)
-    Cached in memory for one hour.
+    Return CUSIP → ticker mapping from the cusip_ticker_map table.
+    The table is populated (and periodically refreshed) by running:
+        python3 cusip_lookup.py
+    Results are cached in memory for one hour so the DB is not hit on
+    every page load.
     """
     global _ticker_cache, _ticker_cache_ts
 
@@ -505,13 +415,18 @@ def get_tickers() -> dict:
         return _ticker_cache
 
     try:
-        tickers = _build_ticker_map()
+        conn = engine.connect()
     except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Failed to fetch ticker data from SEC: {exc}",
-        )
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
 
+    try:
+        rows = conn.execute(
+            text("SELECT cusip, ticker FROM cusip_ticker_map WHERE ticker IS NOT NULL")
+        ).fetchall()
+    finally:
+        conn.close()
+
+    tickers = {r[0]: r[1] for r in rows}
     _ticker_cache = {"tickers": tickers}
     _ticker_cache_ts = time.time()
     return _ticker_cache
