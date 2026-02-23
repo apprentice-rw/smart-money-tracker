@@ -1,4 +1,5 @@
 {
+  "framework": null,
   "buildCommand": "printf 'window.__API_BASE__ = \"%s\";\\n' \"$VITE_API_URL\" > frontend/config.js",
   "outputDirectory": "frontend"
 }
