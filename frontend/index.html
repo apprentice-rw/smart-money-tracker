@@ -484,7 +484,7 @@
 
     // ── Institution card ──────────────────────────────────────────────
 
-    function InstitutionCard({ institution }) {
+    function InstitutionCard({ institution, onAumLoaded }) {
       const [filings, setFilings]           = useState([]);
       const [filingsError, setFilingsError] = useState(null);
       const [period, setPeriod]             = useState(null);
@@ -527,7 +527,16 @@
         let cancelled = false;
         setHoldingsData(null); setHError(null); setHLoading(true);
         API.getHoldings(institution.id, period)
-          .then((d) => { if (!cancelled) { setHoldingsData(d); setHLoading(false); } })
+          .then((d) => {
+            if (!cancelled) {
+              setHoldingsData(d);
+              setHLoading(false);
+              // Report AUM to App for default sort — only for the most recent filing
+              if (onAumLoaded && filings.length > 0 && period === filings[0].period_of_report) {
+                onAumLoaded(d.total_value || 0);
+              }
+            }
+          })
           .catch((e) => { if (!cancelled) { setHError(e.message); setHLoading(false); } });
         return () => { cancelled = true; };
       }, [institution.id, period]);
@@ -540,6 +549,11 @@
           {/* ── Card header (always visible) ── */}
           <div className="px-5 pt-5 pb-4 border-b border-gray-50">
             <div className="flex items-start justify-between gap-4">
+
+              {/* Drag handle */}
+              <span className="flex-shrink-0 mt-0.5 text-gray-300 hover:text-gray-400
+                               cursor-grab active:cursor-grabbing select-none text-xl leading-none"
+                    title="Drag to reorder">⠿</span>
 
               {/* Left: name + meta + stats bar */}
               <div className="min-w-0 flex-1">
@@ -805,6 +819,21 @@
       const [highlightId, setHighlightId]   = useState(null);
       const cardRefsMap = useRef({});
 
+      // ── Drag-and-drop ordering ─────────────────────────────────────
+      // cardOrder: array of institution IDs, or null = use AUM-descending default
+      const [cardOrder, setCardOrder] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('smt_card_order')) || null; }
+        catch { return null; }
+      });
+      // aumMap: {id: total_value} reported by each card on load, persisted so
+      //         the default AUM sort is stable across page refreshes
+      const [aumMap, setAumMap] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('smt_aum_map')) || {}; }
+        catch { return {}; }
+      });
+      const [draggingId, setDraggingId] = useState(null);
+      const [dragOverId, setDragOverId] = useState(null);
+
       useEffect(() => {
         API.getInstitutions()
           .then((d) => {
@@ -832,18 +861,103 @@
           .catch(() => {}); // silently fail — tickers are best-effort
       }, []);
 
+      // ── AUM callback (from InstitutionCard once holdings load) ─────
+      function handleAumLoaded(id, aum) {
+        setAumMap((prev) => {
+          if (prev[id] === aum) return prev;
+          const next = { ...prev, [id]: aum };
+          localStorage.setItem('smt_aum_map', JSON.stringify(next));
+          return next;
+        });
+      }
+
+      // ── Drag handlers ──────────────────────────────────────────────
+      function handleDragStart(e, instId) {
+        // Don't drag when the user is clicking on interactive elements
+        if (['SELECT','INPUT','BUTTON','TEXTAREA','A'].includes(e.target.tagName)) {
+          e.preventDefault(); return;
+        }
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(instId)); // required by Firefox
+        setDraggingId(instId);
+      }
+
+      function handleDragEnter(e, instId) {
+        e.preventDefault();
+        if (instId !== draggingId) setDragOverId(instId);
+      }
+
+      function handleDragOver(e) {
+        e.preventDefault(); // must prevent default to allow drop
+        e.dataTransfer.dropEffect = 'move';
+      }
+
+      function handleDrop(e, targetId) {
+        e.preventDefault();
+        if (!draggingId || draggingId === targetId) {
+          setDraggingId(null); setDragOverId(null); return;
+        }
+        const ids  = orderedInsts.map((i) => i.id);
+        const from = ids.indexOf(draggingId);
+        const to   = ids.indexOf(targetId);
+        const next = [...ids];
+        next.splice(from, 1);
+        next.splice(to, 0, draggingId);
+        setCardOrder(next);
+        localStorage.setItem('smt_card_order', JSON.stringify(next));
+        setDraggingId(null);
+        setDragOverId(null);
+      }
+
+      function handleDragEnd() {
+        setDraggingId(null);
+        setDragOverId(null);
+      }
+
+      function resetOrder() {
+        setCardOrder(null);
+        localStorage.removeItem('smt_card_order');
+      }
+
+      // ── Ordered institution list ───────────────────────────────────
+      const orderedInsts = useMemo(() => {
+        if (!institutions.length) return [];
+        if (!cardOrder) {
+          // Default: AUM descending (uses cached aumMap so order is stable)
+          return [...institutions].sort((a, b) => (aumMap[b.id] || 0) - (aumMap[a.id] || 0));
+        }
+        // Custom order from localStorage; any new institution goes to the end
+        const orderMap = Object.fromEntries(cardOrder.map((id, i) => [id, i]));
+        return [...institutions].sort(
+          (a, b) => (orderMap[a.id] ?? 9999) - (orderMap[b.id] ?? 9999)
+        );
+      }, [institutions, cardOrder, aumMap]);
+
       return (
         <TickerCtx.Provider value={tickerMap}>
           <div className="max-w-7xl mx-auto px-4 py-8">
 
             {/* Page header */}
             <header className="mb-8">
-              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
-                Smart Money Tracker
-              </h1>
-              <p className="text-sm text-gray-500 mt-1">
-                SEC 13F filings · institutional position changes
-              </p>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
+                    Smart Money Tracker
+                  </h1>
+                  <p className="text-sm text-gray-500 mt-1">
+                    SEC 13F filings · institutional position changes
+                  </p>
+                </div>
+                <button
+                  onClick={resetOrder}
+                  title="Restore default order (AUM descending)"
+                  className="flex-shrink-0 mt-1 text-xs text-gray-400 hover:text-gray-700
+                             border border-gray-200 hover:border-gray-300 rounded-lg
+                             px-3 py-1.5 transition-colors bg-white shadow-sm"
+                >
+                  Reset Order
+                </button>
+              </div>
             </header>
 
             {/* Global search */}
@@ -870,17 +984,48 @@
 
             {/* Institution cards — 3-col desktop, 2-col tablet, 1-col mobile */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
-              {institutions.map((inst) => (
-                <div
-                  key={inst.id}
-                  ref={cardRefsMap.current[inst.id]}
-                  className={`rounded-2xl transition-shadow duration-700 ${highlightId === inst.id ? 'ring-2 ring-blue-400 shadow-lg' : ''}`}
-                >
-                  <CardErrorBoundary>
-                    <InstitutionCard institution={inst} />
-                  </CardErrorBoundary>
-                </div>
-              ))}
+              {orderedInsts.map((inst) => {
+                const isDragging = draggingId === inst.id;
+                const isTarget   = dragOverId  === inst.id && !isDragging;
+                return (
+                  <React.Fragment key={inst.id}>
+
+                    {/* Drop placeholder — shown before the current drag target */}
+                    {isTarget && (
+                      <div className="rounded-2xl border-2 border-dashed border-blue-300
+                                      bg-blue-50/50 min-h-[120px] pointer-events-none
+                                      flex items-center justify-center">
+                        <span className="text-xs text-blue-300 select-none">drop here</span>
+                      </div>
+                    )}
+
+                    <div
+                      ref={cardRefsMap.current[inst.id]}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, inst.id)}
+                      onDragEnter={(e) => handleDragEnter(e, inst.id)}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, inst.id)}
+                      onDragEnd={handleDragEnd}
+                      className={[
+                        'rounded-2xl transition-all duration-200',
+                        highlightId === inst.id  ? 'ring-2 ring-blue-400 shadow-lg'   : '',
+                        isDragging               ? 'opacity-30'                        : '',
+                        isTarget                 ? 'ring-2 ring-blue-300 shadow-md'   : '',
+                      ].join(' ')}
+                      style={{ cursor: isDragging ? 'grabbing' : 'default' }}
+                    >
+                      <CardErrorBoundary>
+                        <InstitutionCard
+                          institution={inst}
+                          onAumLoaded={(aum) => handleAumLoaded(inst.id, aum)}
+                        />
+                      </CardErrorBoundary>
+                    </div>
+
+                  </React.Fragment>
+                );
+              })}
             </div>
 
             {/* Footer */}
