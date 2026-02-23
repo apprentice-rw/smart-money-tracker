@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Smooth chevron rotation */
+.chevron { transition: transform 0.2s ease; }
+.chevron.open { transform: rotate(90deg); }
+
+/* Scrollbar styling for search dropdown */
+.thin-scroll::-webkit-scrollbar { width: 4px; }
+.thin-scroll::-webkit-scrollbar-track { background: transparent; }
+.thin-scroll::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 2px; }
+
+/* Drag ghost pop-in */
+@keyframes smt-ghost-in {
+  from { opacity: 0; transform: rotate(1.5deg) scale(0.92); }
+  to   { opacity: 0.94; transform: rotate(1.5deg) scale(1.03); }
+}
+.smt-ghost { animation: smt-ghost-in 0.1s ease-out forwards; }
+
+/* Drop placeholder slide-in */
+@keyframes smt-drop-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.smt-placeholder { animation: smt-drop-in 0.14s ease-out both; }
