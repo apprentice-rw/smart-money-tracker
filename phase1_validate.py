@@ -141,10 +141,34 @@ def _extract_ns(root: ET.Element) -> str:
     return ""
 
 
+def _detect_value_multiplier(holdings: list[dict]) -> int:
+    """
+    Detect whether a filing's values are in raw USD (return 1) or thousands
+    of dollars (return 1000).
+
+    The SEC 13F instructions allow filers to report in thousands, but since
+    2024 raw USD is required. Some filers still use thousands.  There is no
+    explicit <multiplier> tag, so we infer the unit from the median implied
+    per-share price across all holdings:
+      - If median(value / shares) < $1.00  → values are in thousands (×1000)
+      - Otherwise                          → values are already in raw USD
+    """
+    prices = [
+        h["value"] / h["shares"]
+        for h in holdings
+        if h["shares"] > 0 and h["value"] > 0
+    ]
+    if not prices:
+        return 1
+    median_price = sorted(prices)[len(prices) // 2]
+    return 1000 if median_price < 1.0 else 1
+
+
 def parse_holdings(xml_text: str, period: str) -> list[dict]:
     """
     Parse a 13F infotable XML and return a list of holding dicts.
     Extracts the namespace from the root element for robust cross-filing matching.
+    Values are always normalised to raw USD before returning.
 
     Each dict contains:
         name_of_issuer, cusip, value (raw USD), shares, share_type, period
@@ -185,12 +209,18 @@ def parse_holdings(xml_text: str, period: str) -> list[dict]:
                 {
                     "name_of_issuer": name,
                     "cusip": cusip,
-                    "value": value,       # raw USD (as filed)
+                    "value": value,       # may be thousands — normalised below
                     "shares": shares,
                     "share_type": share_type,
                     "period": period,
                 }
             )
+
+    # Normalise values to raw USD if filer reported in thousands
+    multiplier = _detect_value_multiplier(holdings)
+    if multiplier != 1:
+        for h in holdings:
+            h["value"] = h["value"] * multiplier
 
     return holdings
 
