@@ -30,7 +30,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://smart-money-tracker-vxr6.vercel.app",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
     allow_methods=["GET"],
     allow_headers=["*"],
 )
@@ -141,7 +145,7 @@ def health(conn: Connection = Depends(get_conn)) -> dict:
     }
     return {
         "status": "ok",
-        "database": str(engine.url),
+        "database": engine.url.drivername.split("+")[0],
         "row_counts": counts,
     }
 
