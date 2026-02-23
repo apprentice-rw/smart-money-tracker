@@ -19,6 +19,11 @@ INSTITUTIONS = {
     "Soros Fund Management": "0001029160",
     "Pershing Square Capital Management": "0001336528",
     "Renaissance Technologies": "0001037389",
+    "Duquesne Family Office": "0001536411",
+    "Tiger Global Management": "0001167483",
+    "Third Point": "0001040273",
+    "Baupost Group": "0001061768",
+    "Lone Pine Capital": "0001061165",
 }
 
 USER_AGENT = "SmartMoneyTracker research@example.com"
