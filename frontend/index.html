@@ -28,6 +28,20 @@
     .thin-scroll::-webkit-scrollbar { width: 4px; }
     .thin-scroll::-webkit-scrollbar-track { background: transparent; }
     .thin-scroll::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 2px; }
+
+    /* Drag ghost pop-in */
+    @keyframes smt-ghost-in {
+      from { opacity: 0; transform: rotate(1.5deg) scale(0.92); }
+      to   { opacity: 0.94; transform: rotate(1.5deg) scale(1.03); }
+    }
+    .smt-ghost { animation: smt-ghost-in 0.1s ease-out forwards; }
+
+    /* Drop placeholder slide-in */
+    @keyframes smt-drop-in {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .smt-placeholder { animation: smt-drop-in 0.14s ease-out both; }
   </style>
 </head>
 
@@ -484,7 +498,7 @@
 
     // ── Institution card ──────────────────────────────────────────────
 
-    function InstitutionCard({ institution, onAumLoaded }) {
+    function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown }) {
       const [filings, setFilings]           = useState([]);
       const [filingsError, setFilingsError] = useState(null);
       const [period, setPeriod]             = useState(null);
@@ -552,8 +566,9 @@
 
               {/* Drag handle */}
               <span className="flex-shrink-0 mt-0.5 text-gray-300 hover:text-gray-400
-                               cursor-grab active:cursor-grabbing select-none text-xl leading-none"
-                    title="Drag to reorder">⠿</span>
+                               cursor-grab select-none text-xl leading-none"
+                    title="Drag to reorder"
+                    onMouseDown={onDragHandleMouseDown}>⠿</span>
 
               {/* Left: name + meta + stats bar */}
               <div className="min-w-0 flex-1">
@@ -817,7 +832,9 @@
       const [error, setError]               = useState(null);
       const [tickerMap, setTickerMap]       = useState(null);
       const [highlightId, setHighlightId]   = useState(null);
-      const cardRefsMap = useRef({});
+      const cardRefsMap     = useRef({});
+      const orderedInstsRef = useRef([]);
+      const ghostRef        = useRef(null);
 
       // ── Drag-and-drop ordering ─────────────────────────────────────
       // cardOrder: array of institution IDs, or null = use AUM-descending default
@@ -871,47 +888,111 @@
         });
       }
 
-      // ── Drag handlers ──────────────────────────────────────────────
-      function handleDragStart(e, instId) {
-        // Don't drag when the user is clicking on interactive elements
-        if (['SELECT','INPUT','BUTTON','TEXTAREA','A'].includes(e.target.tagName)) {
-          e.preventDefault(); return;
+      // ── Mouse-event drag ordering ───────────────────────────────────
+      function handleHandleMouseDown(e, instId) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+
+        document.body.style.cursor     = 'grabbing';
+        document.body.style.userSelect = 'none';
+
+        // ── Floating ghost ──────────────────────────────────────────
+        const inst  = orderedInstsRef.current.find(i => i.id === instId);
+        const ghost = document.createElement('div');
+        ghost.className = 'smt-ghost';
+        ghost.style.cssText = [
+          'position:fixed',
+          'pointer-events:none',
+          'z-index:9999',
+          'background:white',
+          'border:1px solid #e5e7eb',
+          'border-radius:16px',
+          'padding:12px 20px',
+          'box-shadow:0 24px 48px rgba(0,0,0,0.18),0 6px 16px rgba(0,0,0,0.10)',
+          'min-width:180px',
+          'max-width:300px',
+          'font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif',
+          'left:' + (e.clientX + 16) + 'px',
+          'top:'  + (e.clientY + 16) + 'px',
+        ].join(';');
+
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px';
+        const hIcon = document.createElement('span');
+        hIcon.textContent = '⠿';
+        hIcon.style.cssText = 'color:#9ca3af;font-size:18px;flex-shrink:0';
+        const hName = document.createElement('span');
+        hName.textContent = inst ? inst.name : '';
+        hName.style.cssText = 'font-size:14px;font-weight:700;color:#111827;'
+          + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+        row.appendChild(hIcon);
+        row.appendChild(hName);
+        ghost.appendChild(row);
+        if (inst) {
+          const sub = document.createElement('div');
+          sub.textContent = 'CIK\u00a0' + inst.cik;
+          sub.style.cssText = 'font-size:11px;color:#9ca3af;margin-top:3px;padding-left:26px';
+          ghost.appendChild(sub);
         }
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', String(instId)); // required by Firefox
+        document.body.appendChild(ghost);
+        ghostRef.current = ghost;
+
         setDraggingId(instId);
-      }
 
-      function handleDragEnter(e, instId) {
-        e.preventDefault();
-        if (instId !== draggingId) setDragOverId(instId);
-      }
+        // ── Mouse tracking ──────────────────────────────────────────
+        let lastRawId = null;
 
-      function handleDragOver(e) {
-        e.preventDefault(); // must prevent default to allow drop
-        e.dataTransfer.dropEffect = 'move';
-      }
+        function onMouseMove(ev) {
+          ghost.style.left = (ev.clientX + 16) + 'px';
+          ghost.style.top  = (ev.clientY + 16) + 'px';
 
-      function handleDrop(e, targetId) {
-        e.preventDefault();
-        if (!draggingId || draggingId === targetId) {
-          setDraggingId(null); setDragOverId(null); return;
+          const el    = document.elementFromPoint(ev.clientX, ev.clientY);
+          const card  = el && el.closest('[data-institution-id]');
+          const rawId = card ? card.dataset.institutionId : null;
+          // Ignore hits on the card being dragged
+          const eid   = (rawId !== null && rawId !== String(instId)) ? rawId : null;
+          if (eid === lastRawId) return;
+          lastRawId = eid;
+          const target = eid
+            ? orderedInstsRef.current.find(i => String(i.id) === eid)
+            : null;
+          setDragOverId(target ? target.id : null);
         }
-        const ids  = orderedInsts.map((i) => i.id);
-        const from = ids.indexOf(draggingId);
-        const to   = ids.indexOf(targetId);
-        const next = [...ids];
-        next.splice(from, 1);
-        next.splice(to, 0, draggingId);
-        setCardOrder(next);
-        localStorage.setItem('smt_card_order', JSON.stringify(next));
-        setDraggingId(null);
-        setDragOverId(null);
-      }
 
-      function handleDragEnd() {
-        setDraggingId(null);
-        setDragOverId(null);
+        function onMouseUp(ev) {
+          window.removeEventListener('mousemove', onMouseMove);
+          window.removeEventListener('mouseup',   onMouseUp);
+          ghost.remove();
+          ghostRef.current           = null;
+          document.body.style.cursor     = '';
+          document.body.style.userSelect = '';
+
+          const el    = document.elementFromPoint(ev.clientX, ev.clientY);
+          const card  = el && el.closest('[data-institution-id]');
+          const rawId = card ? card.dataset.institutionId : null;
+          const tgt   = (rawId !== null && rawId !== String(instId))
+            ? orderedInstsRef.current.find(i => String(i.id) === rawId)
+            : null;
+
+          if (tgt) {
+            const ids  = orderedInstsRef.current.map(i => i.id);
+            const from = ids.indexOf(instId);
+            const to   = ids.indexOf(tgt.id);
+            if (from !== -1 && to !== -1) {
+              const next = [...ids];
+              next.splice(from, 1);
+              next.splice(from < to ? to - 1 : to, 0, instId);
+              setCardOrder(next);
+              localStorage.setItem('smt_card_order', JSON.stringify(next));
+            }
+          }
+
+          setDraggingId(null);
+          setDragOverId(null);
+        }
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup',   onMouseUp);
       }
 
       function resetOrder() {
@@ -932,6 +1013,7 @@
           (a, b) => (orderMap[a.id] ?? 9999) - (orderMap[b.id] ?? 9999)
         );
       }, [institutions, cardOrder, aumMap]);
+      orderedInstsRef.current = orderedInsts;  // keep closure ref current
 
       return (
         <TickerCtx.Provider value={tickerMap}>
@@ -990,35 +1072,32 @@
                 return (
                   <React.Fragment key={inst.id}>
 
-                    {/* Drop placeholder — shown before the current drag target */}
+                    {/* Drop placeholder — animates in before the target card */}
                     {isTarget && (
-                      <div className="rounded-2xl border-2 border-dashed border-blue-300
-                                      bg-blue-50/50 min-h-[120px] pointer-events-none
-                                      flex items-center justify-center">
-                        <span className="text-xs text-blue-300 select-none">drop here</span>
+                      <div data-institution-id={inst.id}
+                           className="smt-placeholder rounded-2xl border-2 border-dashed
+                                      border-blue-300 bg-blue-50/50 min-h-[120px]
+                                      flex items-center justify-center
+                                      text-xs text-blue-300 select-none">
+                        drop here
                       </div>
                     )}
 
                     <div
                       ref={cardRefsMap.current[inst.id]}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, inst.id)}
-                      onDragEnter={(e) => handleDragEnter(e, inst.id)}
-                      onDragOver={handleDragOver}
-                      onDrop={(e) => handleDrop(e, inst.id)}
-                      onDragEnd={handleDragEnd}
+                      data-institution-id={inst.id}
                       className={[
                         'rounded-2xl transition-all duration-200',
-                        highlightId === inst.id  ? 'ring-2 ring-blue-400 shadow-lg'   : '',
-                        isDragging               ? 'opacity-30'                        : '',
-                        isTarget                 ? 'ring-2 ring-blue-300 shadow-md'   : '',
+                        highlightId === inst.id ? 'ring-2 ring-blue-400 shadow-lg' : '',
+                        isDragging              ? 'opacity-30'                      : '',
                       ].join(' ')}
-                      style={{ cursor: isDragging ? 'grabbing' : 'default' }}
+                      style={{ pointerEvents: isDragging ? 'none' : undefined }}
                     >
                       <CardErrorBoundary>
                         <InstitutionCard
                           institution={inst}
                           onAumLoaded={(aum) => handleAumLoaded(inst.id, aum)}
+                          onDragHandleMouseDown={(e) => handleHandleMouseDown(e, inst.id)}
                         />
                       </CardErrorBoundary>
                     </div>
