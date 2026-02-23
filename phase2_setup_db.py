@@ -65,8 +65,8 @@ SCHEMA_STATEMENTS = [
         filing_id   INTEGER NOT NULL REFERENCES filings(id),
         cusip       TEXT    NOT NULL,
         issuer_name TEXT    NOT NULL,
-        shares      INTEGER NOT NULL DEFAULT 0,
-        value       INTEGER NOT NULL DEFAULT 0,
+        shares      BIGINT  NOT NULL DEFAULT 0,
+        value       BIGINT  NOT NULL DEFAULT 0,
         share_type  TEXT    NOT NULL DEFAULT '',
         UNIQUE (filing_id, cusip)
     )
@@ -83,11 +83,11 @@ SCHEMA_STATEMENTS = [
         issuer_name    TEXT    NOT NULL,
         change_type    TEXT    NOT NULL CHECK(change_type IN
                            ('new', 'closed', 'increased', 'decreased', 'unchanged')),
-        prev_shares    INTEGER,
-        curr_shares    INTEGER,
-        prev_value     INTEGER,
-        curr_value     INTEGER,
-        shares_delta   INTEGER,
+        prev_shares    BIGINT,
+        curr_shares    BIGINT,
+        prev_value     BIGINT,
+        curr_value     BIGINT,
+        shares_delta   BIGINT,
         shares_pct     REAL,
         UNIQUE (prev_filing_id, curr_filing_id, cusip)
     )

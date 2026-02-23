@@ -24,7 +24,7 @@ engine = create_engine(
     _DB_URL,
     connect_args={"check_same_thread": False} if IS_SQLITE else {},
     pool_pre_ping=True,  # detects stale connections (important on Railway)
-    future=False,        # SQLAlchemy 1.4 legacy mode
+    future=True,         # 2.0-style: enables conn.commit() / conn.rollback()
 )
 
 
