@@ -1,7 +1,7 @@
 """
 Phase 2 — Database Schema Design + Setup
 Creates the database (SQLite or PostgreSQL), imports all fetch/parse logic
-from phase1_validate, populates the last 3 quarters of 13F holdings for each
+from phase1_validate, populates the last 8 quarters of 13F holdings for each
 institution, and precomputes quarter-over-quarter position_changes.
 """
 
@@ -24,7 +24,7 @@ from phase1_validate import (
     parse_holdings,
 )
 
-NUM_QUARTERS = 3  # how many quarters to backfill
+NUM_QUARTERS = 8  # how many quarters to backfill (2 years)
 
 
 # ---------------------------------------------------------------------------
