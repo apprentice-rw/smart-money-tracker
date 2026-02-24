@@ -37,26 +37,6 @@ function fmtPrice(value, shares) {
   return `$${(value / shares).toFixed(2)}`;
 }
 
-// Normalize company name for ticker lookup.
-// Mirrors the backend _norm_key() so both sides converge on the same key.
-// Three passes:
-//   1. Expand common 13F abbreviations to full words (FINL→financial, etc.)
-//   2. Strip corporate suffixes + 13F qualifiers (INC, DEL, CL A, ADR, …)
-//   3. Collapse non-alphanumeric to spaces
-function normalizeName(s) {
-  let t = s.toLowerCase();
-  // Expand 13F abbreviations so "ALLY FINL" → "ally financial"
-  t = t.replace(/\bfinl\b/g,    'financial')
-       .replace(/\bpete\b/g,    'petroleum')
-       .replace(/\bmfg\b/g,     'manufacturing')
-       .replace(/\bcommuns?\b/g,'communications')
-       .replace(/\bsvcs\b/g,    'services');
-  // Strip suffixes + qualifiers
-  t = t.replace(/\b(inc|corp|co|ltd|llc|plc|holdings|group|class [a-c]|cl [a-c]|del|com|adr|ads|ord|the|new)\b\.?/g, '');
-  t = t.replace(/[^a-z0-9]/g, ' ');
-  return t.replace(/\s+/g, ' ').trim();
-}
-
 // Sort change-group items by the selected key.
 // Uses useMemo at call sites — must not mutate the original array.
 function sortItems(items, sortKey, type) {
@@ -671,8 +651,12 @@ function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, coll
 function SearchBar({ institutions, cardRefsMap, setHighlightId }) {
   const [query,  setQuery]  = useState('');
   const [isOpen, setIsOpen] = useState(false);
-  const inputRef = useRef(null);
-  const panelRef = useRef(null);
+  const inputRef        = useRef(null);
+  const panelRef        = useRef(null);
+  const highlightTimer  = useRef(null);
+
+  // Clear the highlight timer on unmount to prevent stale state updates.
+  useEffect(() => () => clearTimeout(highlightTimer.current), []);
 
   const filtered = institutions.filter((inst) =>
     inst.name.toLowerCase().includes(query.toLowerCase())
@@ -683,7 +667,8 @@ function SearchBar({ institutions, cardRefsMap, setHighlightId }) {
   function handleSelect(inst) {
     cardRefsMap.current[inst.id]?.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setHighlightId(inst.id);
-    setTimeout(() => setHighlightId(null), 1500);
+    clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => setHighlightId(null), 1500);
     setQuery('');
     setIsOpen(false);
   }
@@ -796,7 +781,7 @@ function App() {
         const insts = d.institutions;
         insts.forEach((inst) => {
           if (!cardRefsMap.current[inst.id]) {
-            cardRefsMap.current[inst.id] = React.createRef();
+            cardRefsMap.current[inst.id] = { current: null };
           }
         });
         setInstitutions(insts);

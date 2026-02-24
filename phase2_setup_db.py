@@ -134,7 +134,7 @@ def apply_schema(conn: Connection) -> None:
 
 def wipe_db() -> None:
     if IS_SQLITE:
-        db_path_str = str(engine.url).replace("sqlite:///", "", 1)
+        db_path_str = engine.url.database
         db_path = Path(db_path_str)
         if db_path.exists():
             print(f"  Removing existing SQLite DB: {db_path}")

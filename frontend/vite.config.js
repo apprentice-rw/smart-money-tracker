@@ -1,14 +1,17 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const API_PORT   = process.env.VITE_API_PORT ?? '8000';
+const API_ORIGIN = `http://127.0.0.1:${API_PORT}`;
+
 export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/institutions': 'http://127.0.0.1:8000',
-      '/health':       'http://127.0.0.1:8000',
-      '/search':       'http://127.0.0.1:8000',
-      '/tickers':      'http://127.0.0.1:8000',
+      '/institutions': API_ORIGIN,
+      '/health':       API_ORIGIN,
+      '/search':       API_ORIGIN,
+      '/tickers':      API_ORIGIN,
     },
   },
   build: { outDir: 'dist' },
