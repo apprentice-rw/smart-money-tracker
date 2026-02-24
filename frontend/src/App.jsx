@@ -483,19 +483,32 @@ function ChartLegend({ payload }) {
 }
 
 function StockHistoryDrawer({ cusip, issuerName, onClose }) {
-  const tickerMap             = useContext(TickerCtx);
-  const [data, setData]       = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(null);
-  const [mode, setMode]       = useState('value'); // 'value' | 'weight'
+  const tickerMap               = useContext(TickerCtx);
+  const [data, setData]         = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+  const [mode, setMode]         = useState('value'); // 'value' | 'weight'
+  const [enabledInsts, setEnabledInsts] = useState(new Set());
 
-  // Fetch history on mount
+  // Fetch history on mount; initialise all institutions as enabled
   useEffect(() => {
     setLoading(true); setError(null);
     API.getStockHistory(cusip)
-      .then((d) => { setData(d); setLoading(false); })
+      .then((d) => {
+        setData(d);
+        setLoading(false);
+        setEnabledInsts(new Set(d.history.map((r) => r.institution_id)));
+      })
       .catch((e) => { setError(e.message); setLoading(false); });
   }, [cusip]);
+
+  function toggleInst(id) {
+    setEnabledInsts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
+      return next;
+    });
+  }
 
   // Escape key closes
   useEffect(() => {
@@ -561,9 +574,20 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
     return { chartData: cd, institutions: insts, openPoints, closedPoints };
   }, [data, mode]);
 
-  // Custom dot renderer — diamonds for open/close events, circles otherwise
+  // Compute 5-pointed star polygon points centered at (cx, cy)
+  function starPts(cx, cy, outerR, innerR) {
+    const pts = [];
+    for (let i = 0; i < 10; i++) {
+      const angle = (i * Math.PI) / 5 - Math.PI / 2;
+      const r = i % 2 === 0 ? outerR : innerR;
+      pts.push(`${(cx + r * Math.cos(angle)).toFixed(2)},${(cy + r * Math.sin(angle)).toFixed(2)}`);
+    }
+    return pts.join(' ');
+  }
+
+  // Custom dot renderer: star = new position, X = closed, circle = normal
   const renderDot = (inst, instIdx) => (props) => {
-    const { cx, cy, payload, dataKey, value } = props;
+    const { cx, cy, payload, value } = props;
     if (cx == null || cy == null || value == null) return null;
     const key   = `${payload.period}::${inst.id}`;
     const color = CHART_COLORS[instIdx % CHART_COLORS.length];
@@ -571,20 +595,20 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
     if (closedPoints.has(key)) {
       const s = 5;
       return (
-        <polygon
-          key={key}
-          points={`${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`}
-          fill="#ef4444" stroke="white" strokeWidth={1.5}
-        />
+        <g key={key}>
+          <line x1={cx - s} y1={cy - s} x2={cx + s} y2={cy + s}
+                stroke="#ef4444" strokeWidth={2.5} strokeLinecap="round" />
+          <line x1={cx + s} y1={cy - s} x2={cx - s} y2={cy + s}
+                stroke="#ef4444" strokeWidth={2.5} strokeLinecap="round" />
+        </g>
       );
     }
     if (openPoints.has(key)) {
-      const s = 6;
       return (
         <polygon
           key={key}
-          points={`${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`}
-          fill={color} stroke="white" strokeWidth={1.5}
+          points={starPts(cx, cy, 7, 3)}
+          fill={color} stroke="white" strokeWidth={1}
         />
       );
     }
@@ -592,7 +616,6 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
   };
 
   const ticker = tickerMap?.get(cusip);
-  const title  = ticker ? `${issuerName} · ${ticker}` : issuerName;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex">
@@ -605,7 +628,12 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-3 flex-shrink-0">
           <div className="min-w-0">
-            <p className="text-base font-bold text-gray-900 leading-snug truncate">{title}</p>
+            <p className="text-base font-bold leading-snug truncate">
+              <span className="text-gray-900">{issuerName}</span>
+              {ticker && (
+                <span className="ml-2 text-blue-500 font-bold text-sm">{ticker}</span>
+              )}
+            </p>
             <code className="text-[11px] text-gray-400 tracking-wide">{cusip}</code>
           </div>
           <button
@@ -628,6 +656,33 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
             >{label}</button>
           ))}
         </div>
+
+        {/* Institution toggles — only shown when data loaded */}
+        {institutions.length > 0 && (
+          <div className="px-5 py-2.5 border-b border-gray-50 flex flex-wrap gap-1.5 flex-shrink-0">
+            {institutions.map((inst, idx) => {
+              const checked = enabledInsts.has(inst.id);
+              const color   = CHART_COLORS[idx % CHART_COLORS.length];
+              return (
+                <button
+                  key={inst.id}
+                  onClick={() => toggleInst(inst.id)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                    checked
+                      ? 'bg-white border-gray-200 text-gray-700 shadow-sm'
+                      : 'bg-gray-50 border-gray-100 text-gray-400'
+                  }`}
+                >
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0 transition-colors"
+                    style={{ background: checked ? color : '#d1d5db' }}
+                  />
+                  {inst.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Chart */}
         <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -653,23 +708,26 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
                   />
                   <Tooltip content={<ChartTooltip mode={mode} />} />
                   <Legend content={<ChartLegend />} />
-                  {institutions.map((inst, idx) => (
-                    <Line
-                      key={inst.id}
-                      type="monotone"
-                      dataKey={`v_${inst.id}`}
-                      name={inst.name}
-                      stroke={CHART_COLORS[idx % CHART_COLORS.length]}
-                      strokeWidth={2}
-                      dot={renderDot(inst, idx)}
-                      activeDot={{ r: 5 }}
-                      connectNulls={false}
-                    />
-                  ))}
+                  {institutions.map((inst, idx) => {
+                    if (!enabledInsts.has(inst.id)) return null;
+                    return (
+                      <Line
+                        key={inst.id}
+                        type="monotone"
+                        dataKey={`v_${inst.id}`}
+                        name={inst.name}
+                        stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+                        strokeWidth={2}
+                        dot={renderDot(inst, idx)}
+                        activeDot={{ r: 5 }}
+                        connectNulls={false}
+                      />
+                    );
+                  })}
                 </LineChart>
               </ResponsiveContainer>
               <p className="mt-3 text-center text-[11px] text-gray-300">
-                ◆ new position &nbsp;·&nbsp; <span className="text-red-300">◆ closed position</span>
+                ★ new position &nbsp;·&nbsp; <span className="text-red-300">✕ closed position</span>
               </p>
             </>
           )}
@@ -820,7 +878,7 @@ function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, coll
 
       {/* ── Card body (hidden when collapsed) ── */}
       {!collapsed && (
-        <div className="px-5 py-4 flex-1">
+        <div className="px-5 py-4 overflow-y-auto max-h-[600px] thin-scroll">
 
           {filingsError && (
             <p className="text-xs text-red-400 py-2 italic">{filingsError}</p>
