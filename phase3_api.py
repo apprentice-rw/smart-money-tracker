@@ -8,10 +8,10 @@ import json
 import os
 import threading
 import time
-from pathlib import Path
+from pathlib import Path as FilePath
 from typing import Any, Generator, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Path, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.engine import Connection
@@ -52,7 +52,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-FRONTEND_DIR = Path(__file__).parent / "frontend" / "dist"
+FRONTEND_DIR = FilePath(__file__).parent / "frontend" / "dist"
 
 # Serve the built React frontend at /app.
 # Run `cd frontend && npm run build` first to populate frontend/dist/.
@@ -407,6 +407,57 @@ def search_holdings(
         "query": term,
         "result_count": len(rows),
         "results": [dict(r) for r in rows],
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /stock/{cusip}/history
+# ---------------------------------------------------------------------------
+
+@app.get("/stock/{cusip}/history", tags=["history"])
+def get_stock_history(
+    cusip: str = Path(description="9-character CUSIP"),
+    conn: Connection = Depends(get_conn),
+) -> dict:
+    """
+    Quarter-by-quarter holdings history for a CUSIP across all tracked institutions.
+    portfolio_weight is the position's value as a fraction of total portfolio value
+    for that quarter.  Ordered oldest → newest.
+    """
+    rows = conn.execute(
+        text("""
+        SELECT
+            h.cusip,
+            h.issuer_name,
+            h.shares,
+            h.value,
+            f.period_of_report,
+            i.id           AS institution_id,
+            i.display_name AS institution_name,
+            CAST(h.value AS REAL) / NULLIF(
+                (SELECT SUM(h2.value) FROM holdings h2 WHERE h2.filing_id = f.id),
+                0
+            ) AS portfolio_weight
+        FROM holdings h
+        JOIN filings      f ON f.id = h.filing_id
+        JOIN institutions i ON i.id = f.institution_id
+        WHERE h.cusip = :cusip
+        ORDER BY f.period_of_report ASC, i.id ASC
+        """),
+        {"cusip": cusip.upper()},
+    ).mappings().fetchall()
+
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No holdings found for CUSIP '{cusip}'.",
+        )
+
+    last = rows[-1]  # most recent row for header fields
+    return {
+        "cusip":       last["cusip"],
+        "issuer_name": last["issuer_name"],
+        "history":     [dict(r) for r in rows],
     }
 
 

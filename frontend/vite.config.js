@@ -12,6 +12,7 @@ export default defineConfig({
       '/health':       API_ORIGIN,
       '/search':       API_ORIGIN,
       '/tickers':      API_ORIGIN,
+      '/stock':        API_ORIGIN,
     },
   },
   build: { outDir: 'dist' },

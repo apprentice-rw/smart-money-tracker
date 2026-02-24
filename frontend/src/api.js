@@ -34,3 +34,6 @@ export const search = (q, limit = 50) =>
 
 export const getTickers = () =>
   req('/tickers');
+
+export const getStockHistory = (cusip) =>
+  req(`/stock/${encodeURIComponent(cusip)}/history`);

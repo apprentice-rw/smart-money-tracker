@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, createContext, useContext } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { createPortal } from 'react-dom';
 import * as API from './api.js';
 
 // ── Utilities ────────────────────────────────────────────────────
@@ -54,8 +56,11 @@ function sortItems(items, sortKey, type) {
   }
 }
 
-// Ticker context: Map<normalizedName, ticker> | null (null = not yet loaded)
+// Ticker context: Map<cusip, ticker> | null (null = not yet loaded)
 const TickerCtx = createContext(null);
+
+// Drawer context: (cusip: string, issuerName: string) => void
+const StockDrawerCtx = createContext(null);
 
 // ── Shared primitives ─────────────────────────────────────────────
 
@@ -77,7 +82,8 @@ const QEND_PRICE_TIP =
 function InfoTooltip({ text }) {
   return (
     <span className="relative group inline-flex items-center ml-0.5">
-      <span className="text-gray-300 hover:text-gray-500 cursor-help select-none text-[10px]">ⓘ</span>
+      <span className="text-gray-300 hover:text-gray-500 cursor-help select-none text-[10px]"
+            onClick={(e) => e.stopPropagation()}>ⓘ</span>
       <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2
                        w-52 px-2.5 py-2 rounded-lg bg-gray-800 text-white text-[11px] leading-snug
                        opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50
@@ -122,7 +128,8 @@ function SectionHeader({ type, label, count }) {
 // ── Single position-change row ─────────────────────────────────────
 
 function ChangeRow({ item, type, sortKey }) {
-  const tickerMap = useContext(TickerCtx);
+  const tickerMap  = useContext(TickerCtx);
+  const openDrawer = useContext(StockDrawerCtx);
   const ticker = tickerMap ? tickerMap.get(item.cusip) : null;
 
   const isNew      = type === 'new';
@@ -175,7 +182,10 @@ function ChangeRow({ item, type, sortKey }) {
   const qEndSh  = isClosed ? prevShares : currShares;
 
   return (
-    <div className="py-2.5 border-b border-gray-50 last:border-0 hover:bg-gray-50/60 -mx-5 px-5 transition-colors">
+    <div
+      className="py-2.5 border-b border-gray-50 last:border-0 hover:bg-gray-50/60 -mx-5 px-5 transition-colors cursor-pointer"
+      onClick={() => openDrawer?.(item.cusip, item.issuer_name)}
+    >
       <div className="flex items-start justify-between gap-3">
         {/* Left: name + ticker + CUSIP */}
         <div className="min-w-0 flex-1">
@@ -259,7 +269,8 @@ function ChangeGroup({ items, type, label, sortKey }) {
 // ── Full-holdings table (receives data from parent, lazy open) ────
 
 function HoldingsSection({ data, loading, error }) {
-  const tickerMap = useContext(TickerCtx);
+  const tickerMap  = useContext(TickerCtx);
+  const openDrawer = useContext(StockDrawerCtx);
   const [open, setOpen] = useState(false);
 
   return (
@@ -311,7 +322,8 @@ function HoldingsSection({ data, loading, error }) {
                       return (
                         <tr
                           key={h.cusip}
-                          className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors"
+                          className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors cursor-pointer"
+                          onClick={() => openDrawer?.(h.cusip, h.issuer_name)}
                         >
                           <td className="py-2 pr-2 text-xs text-gray-400 text-right"
                               style={{ fontVariantNumeric: 'tabular-nums' }}>{h.rank}</td>
@@ -412,6 +424,259 @@ function StatsBar({ changes, holdingsData }) {
           : <span className="text-gray-300">top-5 …</span>}
       </span>
     </div>
+  );
+}
+
+// ── Stock history drawer ──────────────────────────────────────────
+
+const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#f97316'];
+
+function ChartTooltip({ active, payload, label, mode }) {
+  if (!active || !payload?.length) return null;
+  const visible = payload.filter((p) => p.value != null);
+  if (!visible.length) return null;
+  return (
+    <div className="bg-white border border-gray-100 rounded-xl shadow-lg px-3 py-2.5 text-xs">
+      <p className="font-semibold text-gray-700 mb-1">{fmtPeriod(label)}</p>
+      {visible.map((p) => {
+        const isClosed = p.value === 0;
+        return (
+          <div key={p.dataKey} className="flex items-center gap-2 py-0.5">
+            <span className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ background: isClosed ? '#ef4444' : p.color }} />
+            <span className="text-gray-600">{p.name}:</span>
+            <span className={`font-semibold ${isClosed ? 'text-red-500' : 'text-gray-900'}`}>
+              {isClosed
+                ? 'Closed'
+                : mode === 'value'
+                  ? fmtVal(p.value)
+                  : p.value.toFixed(2) + '%'}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChartLegend({ payload }) {
+  if (!payload?.length) return null;
+  return (
+    <div style={{
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: '8px 20px',
+      justifyContent: 'center',
+      marginTop: 10,
+      padding: '0 8px',
+    }}>
+      {payload.map((entry) => (
+        <div key={entry.value} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <svg width={8} height={8} style={{ flexShrink: 0 }}>
+            <circle cx={4} cy={4} r={4} fill={entry.color} />
+          </svg>
+          <span style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.4 }}>{entry.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StockHistoryDrawer({ cusip, issuerName, onClose }) {
+  const tickerMap             = useContext(TickerCtx);
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+  const [mode, setMode]       = useState('value'); // 'value' | 'weight'
+
+  // Fetch history on mount
+  useEffect(() => {
+    setLoading(true); setError(null);
+    API.getStockHistory(cusip)
+      .then((d) => { setData(d); setLoading(false); })
+      .catch((e) => { setError(e.message); setLoading(false); });
+  }, [cusip]);
+
+  // Escape key closes
+  useEffect(() => {
+    const fn = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', fn);
+    return () => document.removeEventListener('keydown', fn);
+  }, [onClose]);
+
+  // Lock body scroll while open
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  // Build Recharts data: one entry per period, one key per institution.
+  // Also computes openPoints / closedPoints for custom dot rendering.
+  const { chartData, institutions, openPoints, closedPoints } = useMemo(() => {
+    if (!data) return { chartData: [], institutions: [], openPoints: new Set(), closedPoints: new Set() };
+    const history = data.history;
+    const periods = [...new Set(history.map((r) => r.period_of_report))].sort();
+    const insts = [...new Map(
+      history.map((r) => [r.institution_id, { id: r.institution_id, name: r.institution_name }])
+    ).values()];
+
+    const openPoints   = new Set(); // "period::instId"
+    const closedPoints = new Set(); // "period::instId"
+
+    // Base data: one entry per period
+    const cd = periods.map((period) => {
+      const entry = { period };
+      for (const inst of insts) {
+        const row = history.find(
+          (r) => r.period_of_report === period && r.institution_id === inst.id
+        );
+        if (row) {
+          entry[`v_${inst.id}`] = mode === 'value'
+            ? row.value
+            : (row.portfolio_weight ?? 0) * 100;
+        }
+        // No entry = gap (connectNulls={false})
+      }
+      return entry;
+    });
+
+    // Detect first/last held quarter per institution
+    for (const inst of insts) {
+      const held = periods.filter((p) =>
+        history.some((r) => r.period_of_report === p && r.institution_id === inst.id)
+      );
+      if (!held.length) continue;
+
+      openPoints.add(`${held[0]}::${inst.id}`);
+
+      // If not held through the final period, add a zero drop at the next period
+      const lastIdx = periods.indexOf(held[held.length - 1]);
+      if (lastIdx < periods.length - 1) {
+        const dropPeriod = periods[lastIdx + 1];
+        cd[lastIdx + 1][`v_${inst.id}`] = 0;
+        closedPoints.add(`${dropPeriod}::${inst.id}`);
+      }
+    }
+
+    return { chartData: cd, institutions: insts, openPoints, closedPoints };
+  }, [data, mode]);
+
+  // Custom dot renderer — diamonds for open/close events, circles otherwise
+  const renderDot = (inst, instIdx) => (props) => {
+    const { cx, cy, payload, dataKey, value } = props;
+    if (cx == null || cy == null || value == null) return null;
+    const key   = `${payload.period}::${inst.id}`;
+    const color = CHART_COLORS[instIdx % CHART_COLORS.length];
+
+    if (closedPoints.has(key)) {
+      const s = 5;
+      return (
+        <polygon
+          key={key}
+          points={`${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`}
+          fill="#ef4444" stroke="white" strokeWidth={1.5}
+        />
+      );
+    }
+    if (openPoints.has(key)) {
+      const s = 6;
+      return (
+        <polygon
+          key={key}
+          points={`${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`}
+          fill={color} stroke="white" strokeWidth={1.5}
+        />
+      );
+    }
+    return <circle key={key} cx={cx} cy={cy} r={3} fill={color} stroke="none" />;
+  };
+
+  const ticker = tickerMap?.get(cusip);
+  const title  = ticker ? `${issuerName} · ${ticker}` : issuerName;
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex">
+      {/* Backdrop */}
+      <div className="flex-1 bg-black/30 backdrop-blur-sm cursor-pointer" onClick={onClose} />
+
+      {/* Drawer panel */}
+      <div className="smt-drawer w-full max-w-xl bg-white shadow-2xl flex flex-col h-full">
+
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-3 flex-shrink-0">
+          <div className="min-w-0">
+            <p className="text-base font-bold text-gray-900 leading-snug truncate">{title}</p>
+            <code className="text-[11px] text-gray-400 tracking-wide">{cusip}</code>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex-shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors text-lg leading-none"
+          >×</button>
+        </div>
+
+        {/* Mode toggle */}
+        <div className="px-6 py-3 border-b border-gray-50 flex items-center gap-2 flex-shrink-0">
+          {[['value', 'Market Value'], ['weight', 'Portfolio %']].map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => setMode(val)}
+              className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                mode === val
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'text-gray-500 border-gray-200 hover:border-gray-300'
+              }`}
+            >{label}</button>
+          ))}
+        </div>
+
+        {/* Chart */}
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          {loading && <Spinner />}
+          {error && <p className="text-sm text-red-400 py-4 text-center">{error}</p>}
+          {data && !loading && chartData.length === 0 && (
+            <p className="text-sm text-gray-400 py-4 text-center">No history available.</p>
+          )}
+          {data && !loading && chartData.length > 0 && (
+            <>
+              <ResponsiveContainer width="100%" height={380}>
+                <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis
+                    dataKey="period"
+                    tickFormatter={fmtPeriod}
+                    tick={{ fontSize: 11, fill: '#9ca3af' }}
+                  />
+                  <YAxis
+                    tickFormatter={mode === 'value' ? fmtVal : (v) => v.toFixed(1) + '%'}
+                    tick={{ fontSize: 11, fill: '#9ca3af' }}
+                    width={64}
+                  />
+                  <Tooltip content={<ChartTooltip mode={mode} />} />
+                  <Legend content={<ChartLegend />} />
+                  {institutions.map((inst, idx) => (
+                    <Line
+                      key={inst.id}
+                      type="monotone"
+                      dataKey={`v_${inst.id}`}
+                      name={inst.name}
+                      stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+                      strokeWidth={2}
+                      dot={renderDot(inst, idx)}
+                      activeDot={{ r: 5 }}
+                      connectNulls={false}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+              <p className="mt-3 text-center text-[11px] text-gray-300">
+                ◆ new position &nbsp;·&nbsp; <span className="text-red-300">◆ closed position</span>
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -775,6 +1040,19 @@ function App() {
   const [dragOverId,   setDragOverId]   = useState(null);
   const [collapsedMap, setCollapsedMap] = useState({});
 
+  // ── Stock history drawer ───────────────────────────────────────
+  const [drawerCusip, setDrawerCusip] = useState(null);
+  const [drawerName,  setDrawerName]  = useState(null);
+
+  function openStockDrawer(cusip, issuerName) {
+    setDrawerCusip(cusip);
+    setDrawerName(issuerName || cusip);
+  }
+  function closeStockDrawer() {
+    setDrawerCusip(null);
+    setDrawerName(null);
+  }
+
   useEffect(() => {
     API.getInstitutions()
       .then((d) => {
@@ -954,6 +1232,7 @@ function App() {
 
   return (
     <TickerCtx.Provider value={tickerMap}>
+      <StockDrawerCtx.Provider value={openStockDrawer}>
       <div className="max-w-7xl mx-auto px-4 py-8">
 
         {/* Page header */}
@@ -1061,6 +1340,16 @@ function App() {
           Smart Money Tracker · SEC EDGAR 13F data
         </footer>
       </div>
+
+      {/* Stock history drawer — rendered via portal when a stock is clicked */}
+      {drawerCusip && (
+        <StockHistoryDrawer
+          cusip={drawerCusip}
+          issuerName={drawerName}
+          onClose={closeStockDrawer}
+        />
+      )}
+      </StockDrawerCtx.Provider>
     </TickerCtx.Provider>
   );
 }
