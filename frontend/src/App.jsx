@@ -491,7 +491,7 @@ function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, coll
       })
       .catch((e) => { if (!cancelled) { setHError(e.message); setHLoading(false); } });
     return () => { cancelled = true; };
-  }, [institution.id, period]);
+  }, [institution.id, period, filings]);
 
   const currentFiling = filings.find((f) => f.period_of_report === period);
 

@@ -57,32 +57,72 @@ def fetch_xml(url: str) -> str:
 # Filing discovery
 # ---------------------------------------------------------------------------
 
-def get_recent_13f_filings(cik: str, n: int = 3) -> list[dict]:
-    """
-    Fetch the most recent n 13F-HR filings for a given CIK.
-    Returns list of {accession_number, period_of_report, filing_date} dicts.
-    """
-    url = f"https://data.sec.gov/submissions/CIK{cik}.json"
-    data = fetch_json(url)
-
-    recent = data.get("filings", {}).get("recent", {})
-    forms = recent.get("form", [])
-    accessions = recent.get("accessionNumber", [])
-    periods = recent.get("reportDate", [])
-    dates = recent.get("filingDate", [])
-
-    filings = []
+def _parse_filing_batch(batch: dict) -> list[dict]:
+    """Extract all 13F-HR entries from a filings batch dict (recent or paginated)."""
+    forms = batch.get("form", [])
+    accessions = batch.get("accessionNumber", [])
+    periods = batch.get("reportDate", [])
+    dates = batch.get("filingDate", [])
+    results = []
     for form, acc, period, filed in zip(forms, accessions, periods, dates):
         if form == "13F-HR":
-            filings.append(
+            results.append(
                 {
                     "accession_number": acc,
                     "period_of_report": period,
                     "filing_date": filed,
                 }
             )
+    return results
+
+
+def get_recent_13f_filings(cik: str, n: int = 3) -> list[dict]:
+    """
+    Fetch the most recent n 13F-HR filings for a given CIK.
+    Returns list of {accession_number, period_of_report, filing_date} dicts.
+
+    First scans filings.recent (the most recent ~40 filings of all types).
+    If fewer than n 13F-HR filings are found there, falls back to the
+    paginated filings.files entries, fetching additional batch files until
+    n are found. This handles prolific filers whose 13F filings have been
+    pushed out of the recent window by many non-13F submissions.
+    """
+    url = f"https://data.sec.gov/submissions/CIK{cik}.json"
+    data = fetch_json(url)
+
+    filings_data = data.get("filings", {})
+
+    # Pass 1: filings.recent
+    filings = _parse_filing_batch(filings_data.get("recent", {}))
+    filings = filings[:n]  # cap to n — may already have enough
+
+    if len(filings) >= n:
+        return filings
+
+    # Pass 2: paginated filings.files (older batches, newest first)
+    extra_files = filings_data.get("files", [])
+    if extra_files:
+        print(
+            f"  WARNING: only {len(filings)}/{n} 13F-HR filings found in "
+            f"filings.recent for CIK {cik} — fetching paginated batches."
+        )
+    for file_entry in extra_files:
         if len(filings) >= n:
             break
+        batch_name = file_entry.get("name", "")
+        if not batch_name:
+            continue
+        batch_url = f"https://data.sec.gov/submissions/{batch_name}"
+        try:
+            batch_data = fetch_json(batch_url)
+        except Exception as exc:
+            print(f"  WARNING: could not fetch batch {batch_name}: {exc}")
+            continue
+        batch_filings = _parse_filing_batch(batch_data)
+        for f in batch_filings:
+            if len(filings) >= n:
+                break
+            filings.append(f)
 
     return filings
 

@@ -107,11 +107,13 @@ SCHEMA_STATEMENTS = [
     # indexes
     "CREATE INDEX IF NOT EXISTS idx_holdings_cusip    ON holdings (cusip)",
     "CREATE INDEX IF NOT EXISTS idx_holdings_filing   ON holdings (filing_id)",
+    "CREATE INDEX IF NOT EXISTS idx_holdings_value    ON holdings (value DESC)",
     "CREATE INDEX IF NOT EXISTS idx_filings_inst      ON filings (institution_id)",
     "CREATE INDEX IF NOT EXISTS idx_filings_period    ON filings (period_of_report)",
     "CREATE INDEX IF NOT EXISTS idx_changes_inst      ON position_changes (institution_id)",
     "CREATE INDEX IF NOT EXISTS idx_changes_cusip     ON position_changes (cusip)",
     "CREATE INDEX IF NOT EXISTS idx_changes_curr      ON position_changes (curr_filing_id)",
+    "CREATE INDEX IF NOT EXISTS idx_changes_prev      ON position_changes (prev_filing_id)",
 ]
 
 

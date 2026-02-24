@@ -5,8 +5,9 @@ Also serves the React frontend as static files at /app.
 """
 
 import json
+import os
+import threading
 import time
-import urllib.request
 from pathlib import Path
 from typing import Any, Generator, Optional
 
@@ -28,20 +29,33 @@ app = FastAPI(
     version="0.4.0",
 )
 
+_DEFAULT_ORIGINS = [
+    "https://smart-money-tracker-vxr6.vercel.app",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+
+# ALLOWED_ORIGINS env var overrides the default list.
+# Set it to a comma-separated list of origins, e.g.:
+#   ALLOWED_ORIGINS=https://myapp.vercel.app,https://preview.vercel.app
+_raw_origins = os.environ.get("ALLOWED_ORIGINS", "")
+_ALLOWED_ORIGINS = (
+    [o.strip() for o in _raw_origins.split(",") if o.strip()]
+    if _raw_origins
+    else _DEFAULT_ORIGINS
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://smart-money-tracker-vxr6.vercel.app",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_methods=["GET"],
     allow_headers=["*"],
 )
 
-FRONTEND_DIR = Path(__file__).parent / "frontend"
+FRONTEND_DIR = Path(__file__).parent / "frontend" / "dist"
 
-# Serve the React frontend at /app (eliminates cross-origin issues in local dev)
+# Serve the built React frontend at /app.
+# Run `cd frontend && npm run build` first to populate frontend/dist/.
 if FRONTEND_DIR.exists():
     app.mount("/app", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
@@ -401,6 +415,7 @@ def search_holdings(
 
 _ticker_cache: Optional[dict] = None
 _ticker_cache_ts: float = 0.0
+_ticker_cache_lock = threading.Lock()
 _TICKER_TTL = 3600  # seconds
 
 
@@ -415,25 +430,32 @@ def get_tickers() -> dict:
     """
     global _ticker_cache, _ticker_cache_ts
 
+    # Fast path — no lock needed for a read of an already-populated cache.
     if _ticker_cache is not None and (time.time() - _ticker_cache_ts) < _TICKER_TTL:
         return _ticker_cache
 
-    try:
-        conn = engine.connect()
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+    # Slow path — acquire lock so only one thread hits the DB on cache miss.
+    with _ticker_cache_lock:
+        # Re-check inside the lock (another thread may have refreshed while we waited).
+        if _ticker_cache is not None and (time.time() - _ticker_cache_ts) < _TICKER_TTL:
+            return _ticker_cache
 
-    try:
-        rows = conn.execute(
-            text("SELECT cusip, ticker FROM cusip_ticker_map WHERE ticker IS NOT NULL")
-        ).fetchall()
-    finally:
-        conn.close()
+        try:
+            conn = engine.connect()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
 
-    tickers = {r[0]: r[1] for r in rows}
-    _ticker_cache = {"tickers": tickers}
-    _ticker_cache_ts = time.time()
-    return _ticker_cache
+        try:
+            rows = conn.execute(
+                text("SELECT cusip, ticker FROM cusip_ticker_map WHERE ticker IS NOT NULL")
+            ).fetchall()
+        finally:
+            conn.close()
+
+        tickers = {r[0]: r[1] for r in rows}
+        _ticker_cache = {"tickers": tickers}
+        _ticker_cache_ts = time.time()
+        return _ticker_cache
 
 
 # ---------------------------------------------------------------------------
