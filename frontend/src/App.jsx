@@ -439,18 +439,21 @@ function ChartTooltip({ active, payload, label, mode }) {
     <div className="bg-white border border-gray-100 rounded-xl shadow-lg px-3 py-2.5 text-xs">
       <p className="font-semibold text-gray-700 mb-1">{fmtPeriod(label)}</p>
       {visible.map((p) => {
-        const isClosed = p.value === 0;
+        const isClosed = mode === 'qoq' ? p.value === -100 : p.value === 0;
+        const fmtValue = isClosed
+          ? 'Closed'
+          : (mode === 'value' || mode === 'log')
+            ? fmtVal(p.value)
+            : mode === 'qoq'
+              ? (p.value >= 0 ? '+' : '') + p.value.toFixed(1) + '%'
+              : p.value.toFixed(2) + '%';
         return (
           <div key={p.dataKey} className="flex items-center gap-2 py-0.5">
             <span className="w-2 h-2 rounded-full flex-shrink-0"
                   style={{ background: isClosed ? '#ef4444' : p.color }} />
             <span className="text-gray-600">{p.name}:</span>
             <span className={`font-semibold ${isClosed ? 'text-red-500' : 'text-gray-900'}`}>
-              {isClosed
-                ? 'Closed'
-                : mode === 'value'
-                  ? fmtVal(p.value)
-                  : p.value.toFixed(2) + '%'}
+              {fmtValue}
             </span>
           </div>
         );
@@ -487,7 +490,7 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
   const [data, setData]         = useState(null);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);
-  const [mode, setMode]         = useState('value'); // 'value' | 'weight'
+  const [mode, setMode]         = useState('value'); // 'value' | 'weight' | 'log' | 'qoq'
   const [enabledInsts, setEnabledInsts] = useState(new Set());
 
   // Fetch history on mount; initialise all institutions as enabled
@@ -537,16 +540,30 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
     const closedPoints = new Set(); // "period::instId"
 
     // Base data: one entry per period
-    const cd = periods.map((period) => {
+    const cd = periods.map((period, periodIdx) => {
       const entry = { period };
       for (const inst of insts) {
         const row = history.find(
           (r) => r.period_of_report === period && r.institution_id === inst.id
         );
         if (row) {
-          entry[`v_${inst.id}`] = mode === 'value'
-            ? row.value
-            : (row.portfolio_weight ?? 0) * 100;
+          if (mode === 'value' || mode === 'log') {
+            entry[`v_${inst.id}`] = row.value;
+          } else if (mode === 'weight') {
+            entry[`v_${inst.id}`] = (row.portfolio_weight ?? 0) * 100;
+          } else {
+            // qoq: (curr - prev) / prev * 100; 0% on first held quarter
+            let prevRow = null;
+            for (let pi = periodIdx - 1; pi >= 0; pi--) {
+              prevRow = history.find(
+                (r) => r.period_of_report === periods[pi] && r.institution_id === inst.id
+              );
+              if (prevRow) break;
+            }
+            entry[`v_${inst.id}`] = prevRow && prevRow.shares > 0
+              ? (row.shares - prevRow.shares) / prevRow.shares * 100
+              : 0;
+          }
         }
         // No entry = gap (connectNulls={false})
       }
@@ -562,12 +579,14 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
 
       openPoints.add(`${held[0]}::${inst.id}`);
 
-      // If not held through the final period, add a zero drop at the next period
+      // Add a close drop point at the next period (skipped for log — 0 is invalid on log scale)
       const lastIdx = periods.indexOf(held[held.length - 1]);
       if (lastIdx < periods.length - 1) {
         const dropPeriod = periods[lastIdx + 1];
-        cd[lastIdx + 1][`v_${inst.id}`] = 0;
-        closedPoints.add(`${dropPeriod}::${inst.id}`);
+        if (mode !== 'log') {
+          cd[lastIdx + 1][`v_${inst.id}`] = mode === 'qoq' ? -100 : 0;
+          closedPoints.add(`${dropPeriod}::${inst.id}`);
+        }
       }
     }
 
@@ -643,8 +662,8 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
         </div>
 
         {/* Mode toggle */}
-        <div className="px-6 py-3 border-b border-gray-50 flex items-center gap-2 flex-shrink-0">
-          {[['value', 'Market Value'], ['weight', 'Portfolio %']].map(([val, label]) => (
+        <div className="px-5 py-2.5 border-b border-gray-50 flex flex-wrap items-center gap-1.5 flex-shrink-0">
+          {[['value', 'Market Value'], ['weight', 'Portfolio %'], ['log', 'Log Scale'], ['qoq', 'QoQ Change']].map(([val, label]) => (
             <button
               key={val}
               onClick={() => setMode(val)}
@@ -702,7 +721,16 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
                     tick={{ fontSize: 11, fill: '#9ca3af' }}
                   />
                   <YAxis
-                    tickFormatter={mode === 'value' ? fmtVal : (v) => v.toFixed(1) + '%'}
+                    scale={mode === 'log' ? 'log' : 'auto'}
+                    domain={mode === 'log' ? ['auto', 'auto'] : undefined}
+                    allowDataOverflow={mode === 'log'}
+                    tickFormatter={
+                      (mode === 'value' || mode === 'log')
+                        ? fmtVal
+                        : mode === 'qoq'
+                          ? (v) => (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
+                          : (v) => v.toFixed(1) + '%'
+                    }
                     tick={{ fontSize: 11, fill: '#9ca3af' }}
                     width={64}
                   />
@@ -878,7 +906,7 @@ function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, coll
 
       {/* ── Card body (hidden when collapsed) ── */}
       {!collapsed && (
-        <div className="px-5 py-4 overflow-y-auto max-h-[600px] thin-scroll">
+        <div className="px-5 py-4 overflow-y-auto overflow-x-hidden max-h-[600px] thin-scroll">
 
           {filingsError && (
             <p className="text-xs text-red-400 py-2 italic">{filingsError}</p>
