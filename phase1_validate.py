@@ -17,7 +17,7 @@ INSTITUTIONS = {
     "ARK Investment Management": "0001697748",
     "Bridgewater Associates": "0001350694",
     "Soros Fund Management": "0001029160",
-    "Pershing Square Capital Management": "0001336528",
+    "Pershing Square Capital": "0001336528",
     "Renaissance Technologies": "0001037389",
     "Duquesne Family Office": "0001536411",
     "Tiger Global Management": "0001167483",

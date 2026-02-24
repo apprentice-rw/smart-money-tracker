@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, createContext, useContext } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { createPortal } from 'react-dom';
 import * as API from './api.js';
 
@@ -328,8 +328,9 @@ function HoldingsSection({ data, loading, error }) {
                           <td className="py-2 pr-2 text-xs text-gray-400 text-right"
                               style={{ fontVariantNumeric: 'tabular-nums' }}>{h.rank}</td>
                           <td className="py-2 pr-4">
-                            <span className="text-sm text-gray-900">{h.issuer_name}</span>
-                            {ticker && <span className="ml-1.5 text-[11px] text-gray-400">{ticker}</span>}
+                            <span className="text-sm text-gray-900" title={h.issuer_name}>
+                              {ticker || (h.issuer_name.length > 15 ? h.issuer_name.slice(0, 15) + '…' : h.issuer_name)}
+                            </span>
                             <code className="ml-2 text-[11px] text-gray-400 hidden sm:inline">{h.cusip}</code>
                           </td>
                           <td className="py-2 pr-4 text-sm text-right text-gray-600"
@@ -444,9 +445,11 @@ function ChartTooltip({ active, payload, label, mode }) {
           ? 'Closed'
           : (mode === 'value' || mode === 'log')
             ? fmtVal(p.value)
-            : mode === 'qoq'
-              ? (p.value >= 0 ? '+' : '') + p.value.toFixed(1) + '%'
-              : p.value.toFixed(2) + '%';
+            : mode === 'shares'
+              ? fmtShares(p.value)
+              : mode === 'qoq'
+                ? (p.value >= 0 ? '+' : '') + p.value.toFixed(1) + '%'
+                : p.value.toFixed(2) + '%';
         return (
           <div key={p.dataKey} className="flex items-center gap-2 py-0.5">
             <span className="w-2 h-2 rounded-full flex-shrink-0"
@@ -462,28 +465,6 @@ function ChartTooltip({ active, payload, label, mode }) {
   );
 }
 
-function ChartLegend({ payload }) {
-  if (!payload?.length) return null;
-  return (
-    <div style={{
-      display: 'flex',
-      flexWrap: 'wrap',
-      gap: '8px 20px',
-      justifyContent: 'center',
-      marginTop: 10,
-      padding: '0 8px',
-    }}>
-      {payload.map((entry) => (
-        <div key={entry.value} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <svg width={8} height={8} style={{ flexShrink: 0 }}>
-            <circle cx={4} cy={4} r={4} fill={entry.color} />
-          </svg>
-          <span style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.4 }}>{entry.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function StockHistoryDrawer({ cusip, issuerName, onClose }) {
   const tickerMap               = useContext(TickerCtx);
@@ -551,6 +532,8 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
             entry[`v_${inst.id}`] = row.value;
           } else if (mode === 'weight') {
             entry[`v_${inst.id}`] = (row.portfolio_weight ?? 0) * 100;
+          } else if (mode === 'shares') {
+            entry[`v_${inst.id}`] = row.shares;
           } else {
             // qoq: (curr - prev) / prev * 100; 0% on first held quarter
             let prevRow = null;
@@ -663,7 +646,7 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
 
         {/* Mode toggle */}
         <div className="px-5 py-2.5 border-b border-gray-50 flex flex-wrap items-center gap-1.5 flex-shrink-0">
-          {[['value', 'Market Value'], ['weight', 'Portfolio %'], ['log', 'Log Scale'], ['qoq', 'QoQ Change']].map(([val, label]) => (
+          {[['value', 'Market Value'], ['weight', 'Portfolio %'], ['log', 'Log Scale'], ['shares', 'Shares'], ['qoq', 'QoQ Change']].map(([val, label]) => (
             <button
               key={val}
               onClick={() => setMode(val)}
@@ -727,15 +710,16 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
                     tickFormatter={
                       (mode === 'value' || mode === 'log')
                         ? fmtVal
-                        : mode === 'qoq'
-                          ? (v) => (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
-                          : (v) => v.toFixed(1) + '%'
+                        : mode === 'shares'
+                          ? fmtShares
+                          : mode === 'qoq'
+                            ? (v) => (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
+                            : (v) => v.toFixed(1) + '%'
                     }
                     tick={{ fontSize: 11, fill: '#9ca3af' }}
                     width={64}
                   />
                   <Tooltip content={<ChartTooltip mode={mode} />} />
-                  <Legend content={<ChartLegend />} />
                   {institutions.map((inst, idx) => {
                     if (!enabledInsts.has(inst.id)) return null;
                     return (
