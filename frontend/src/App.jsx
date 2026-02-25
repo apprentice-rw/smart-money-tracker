@@ -471,8 +471,12 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
   const [data, setData]         = useState(null);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);
-  const [mode, setMode]         = useState('value'); // 'value' | 'weight' | 'log' | 'qoq'
+  const [mode, setMode]         = useState('value'); // 'value' | 'weight' | 'log' | 'shares' | 'qoq'
+  const [logScale, setLogScale] = useState(true);   // linear/log toggle for 'value' and 'shares' modes
   const [enabledInsts, setEnabledInsts] = useState(new Set());
+
+  // True when the Y-axis should use logarithmic scale
+  const useLogAxis = mode === 'log' || ((mode === 'value' || mode === 'shares') && logScale);
 
   // Fetch history on mount; initialise all institutions as enabled
   useEffect(() => {
@@ -562,11 +566,11 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
 
       openPoints.add(`${held[0]}::${inst.id}`);
 
-      // Add a close drop point at the next period (skipped for log — 0 is invalid on log scale)
+      // Add a close drop point at the next period (skipped when log scale — 0 is invalid on log)
       const lastIdx = periods.indexOf(held[held.length - 1]);
       if (lastIdx < periods.length - 1) {
         const dropPeriod = periods[lastIdx + 1];
-        if (mode !== 'log') {
+        if (!useLogAxis) {
           cd[lastIdx + 1][`v_${inst.id}`] = mode === 'qoq' ? -100 : 0;
           closedPoints.add(`${dropPeriod}::${inst.id}`);
         }
@@ -574,7 +578,7 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
     }
 
     return { chartData: cd, institutions: insts, openPoints, closedPoints };
-  }, [data, mode]);
+  }, [data, mode, logScale]);
 
   // Compute 5-pointed star polygon points centered at (cx, cy)
   function starPts(cx, cy, outerR, innerR) {
@@ -644,7 +648,7 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
           >×</button>
         </div>
 
-        {/* Mode toggle */}
+        {/* Mode toggle + contextual scale toggle */}
         <div className="px-5 py-2.5 border-b border-gray-50 flex flex-wrap items-center gap-1.5 flex-shrink-0">
           {[['value', 'Market Value'], ['weight', 'Portfolio %'], ['log', 'Log Scale'], ['shares', 'Shares'], ['qoq', 'QoQ Change']].map(([val, label]) => (
             <button
@@ -657,6 +661,23 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
               }`}
             >{label}</button>
           ))}
+          {/* Secondary Linear/Log toggle — only visible for Market Value and Shares modes */}
+          {(mode === 'value' || mode === 'shares') && (
+            <>
+              <span className="text-gray-200 select-none mx-0.5">|</span>
+              {[['log', 'Log'], ['linear', 'Linear']].map(([val, label]) => (
+                <button
+                  key={val}
+                  onClick={() => setLogScale(val === 'log')}
+                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                    (val === 'log') === logScale
+                      ? 'bg-gray-700 text-white border-gray-700'
+                      : 'text-gray-400 border-gray-200 hover:border-gray-300'
+                  }`}
+                >{label}</button>
+              ))}
+            </>
+          )}
         </div>
 
         {/* Institution toggles — only shown when data loaded */}
@@ -704,9 +725,9 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
                     tick={{ fontSize: 11, fill: '#9ca3af' }}
                   />
                   <YAxis
-                    scale={mode === 'log' ? 'log' : 'auto'}
-                    domain={mode === 'log' ? ['auto', 'auto'] : undefined}
-                    allowDataOverflow={mode === 'log'}
+                    scale={useLogAxis ? 'log' : 'auto'}
+                    domain={useLogAxis ? ['auto', 'auto'] : undefined}
+                    allowDataOverflow={useLogAxis}
                     tickFormatter={
                       (mode === 'value' || mode === 'log')
                         ? fmtVal
