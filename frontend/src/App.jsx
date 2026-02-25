@@ -806,9 +806,10 @@ function HeatmapCell(props) {
   const fill     = HEATMAP_COLORS[changeType] || HEATMAP_COLORS.unchanged;
   const textFill = HEATMAP_TEXT[changeType]   || HEATMAP_TEXT.unchanged;
 
-  const showName = width > 30 && height > 18;
-  const showPct  = showName && height > 34 && sharesPct != null;
-  const fontSize = Math.min(11, Math.floor(width / 5));
+  const fontSize    = Math.min(width / 6, height / 2.5, 14);
+  const fontSizePct = Math.max(fontSize - 1.5, 7);
+  const showName    = fontSize >= 8;
+  const showPct     = showName && fontSizePct >= 7 && sharesPct != null && height > 34;
 
   return (
     <g
@@ -819,7 +820,7 @@ function HeatmapCell(props) {
       <rect x={x + 1} y={y + 1} width={width - 2} height={height - 2} fill={fill} rx={2} />
       {showName && (
         <text
-          x={x + width / 2} y={y + height / 2 - (showPct ? 7 : 0)}
+          x={x + width / 2} y={y + height / 2 - (showPct ? fontSizePct * 0.7 : 0)}
           textAnchor="middle" dominantBaseline="middle"
           fontSize={fontSize} fontWeight={600} fill={textFill}
           style={{ pointerEvents: 'none', userSelect: 'none' }}
@@ -829,9 +830,9 @@ function HeatmapCell(props) {
       )}
       {showPct && (
         <text
-          x={x + width / 2} y={y + height / 2 + 9}
+          x={x + width / 2} y={y + height / 2 + fontSize * 0.7}
           textAnchor="middle" dominantBaseline="middle"
-          fontSize={Math.min(10, fontSize)} fill={textFill} opacity={0.75}
+          fontSize={fontSizePct} fill={textFill} opacity={0.75}
           style={{ pointerEvents: 'none', userSelect: 'none' }}
         >
           {sharesPct > 0 ? '+' : ''}{sharesPct.toFixed(0)}%
@@ -1727,14 +1728,8 @@ function App() {
         ) : (
           /* ── Heatmap view ── */
           <div>
-            <div className="bg-white border border-gray-100 rounded-2xl shadow-sm divide-y divide-gray-100 overflow-hidden">
-              {orderedInsts.map((inst) => (
-                <HeatmapRow key={inst.id} institution={inst} />
-              ))}
-            </div>
-
-            {/* Color legend */}
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 px-1 text-xs text-gray-500">
+            {/* Color legend — shown above rows so it's visible before scrolling */}
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-4 px-1 text-xs text-gray-500">
               {[
                 ['new',       'New position'],
                 ['increased', 'Increased'],
@@ -1751,6 +1746,12 @@ function App() {
                 </div>
               ))}
               <span className="text-gray-300 ml-auto">Block size = portfolio weight · Hover for details</span>
+            </div>
+
+            <div className="bg-white border border-gray-100 rounded-2xl shadow-sm divide-y divide-gray-100 overflow-hidden">
+              {orderedInsts.map((inst) => (
+                <HeatmapRow key={inst.id} institution={inst} />
+              ))}
             </div>
           </div>
         )}
