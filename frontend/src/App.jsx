@@ -1163,7 +1163,7 @@ function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, coll
     <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden flex flex-col">
 
       {/* ── Card header (always visible) ── */}
-      <div className="px-5 pt-5 pb-4 border-b border-gray-50">
+      <div className={`px-5 pt-5 border-b border-gray-50 ${!collapsed ? 'pb-3' : 'pb-4'}`}>
         <div className="flex items-start justify-between gap-4">
 
           {/* Drag handle */}
@@ -1235,6 +1235,32 @@ function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, coll
             </button>
           </div>
         </div>
+
+        {/* Sort pills — shown in header so they stay visible while scrolling */}
+        {!collapsed && (
+          <div className="flex items-center gap-2 pt-3">
+            <span className="text-[11px] text-gray-400">Sort:</span>
+            {[['value', 'Value'], ['pct', '%'], ['shares', 'Shares']].map(([key, label]) => {
+              const active = sortKey === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => {
+                    if (active) setSortDir((d) => d === 'desc' ? 'asc' : 'desc');
+                    else { setSortKey(key); setSortDir('desc'); }
+                  }}
+                  className={`text-xs px-2.5 py-1 rounded-full border border-gray-200 transition-colors ${
+                    active
+                      ? 'bg-gray-200 text-gray-900 font-semibold'
+                      : 'bg-transparent text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {label}{active ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ── Card body (hidden when collapsed) ── */}
@@ -1288,30 +1314,6 @@ function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, coll
                     {changes.summary.unchanged} unchanged
                   </span>
                 )}
-              </div>
-
-              {/* Sort control */}
-              <div className="flex items-center gap-2 pb-3 mb-1 border-b border-gray-50">
-                <span className="text-[11px] text-gray-400">Sort:</span>
-                {[['value', 'Value'], ['pct', '%'], ['shares', 'Shares']].map(([key, label]) => {
-                  const active = sortKey === key;
-                  return (
-                    <button
-                      key={key}
-                      onClick={() => {
-                        if (active) setSortDir((d) => d === 'desc' ? 'asc' : 'desc');
-                        else { setSortKey(key); setSortDir('desc'); }
-                      }}
-                      className={`text-xs px-2.5 py-1 rounded-full border border-gray-200 transition-colors ${
-                        active
-                          ? 'bg-gray-200 text-gray-900 font-semibold'
-                          : 'bg-transparent text-gray-400 hover:text-gray-600'
-                      }`}
-                    >
-                      {label}{active ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
-                    </button>
-                  );
-                })}
               </div>
 
               <ChangeGroup items={changes.changes.new}       type="new"       label="New Positions" sortKey={sortKeyFull} />
