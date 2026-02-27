@@ -811,6 +811,50 @@ function HeatmapCell(props) {
   const showName    = fontSize >= 8;
   const showPct     = showName && fontSizePct >= 7 && sharesPct != null && height > 34;
 
+  // Word-wrap the name into 1 or 2 lines, truncating with ellipsis if needed
+  const charsPerPx = 1 / (fontSize * 0.6); // ~0.6em per char
+  const maxChars   = Math.max(1, Math.floor(width * charsPerPx) - 1);
+
+  function truncate(str, max) {
+    return str.length <= max ? str : str.slice(0, max - 1).trimEnd() + '…';
+  }
+
+  let line1 = '', line2 = '';
+  if (showName) {
+    const words   = name.split(' ');
+    const twoLine = height > 40;
+    let   built   = '';
+    let   splitAt = -1; // index of first word that overflows line 1
+
+    for (let i = 0; i < words.length; i++) {
+      const attempt = built ? built + ' ' + words[i] : words[i];
+      if (attempt.length <= maxChars) {
+        built = attempt;
+      } else {
+        splitAt = i;
+        break;
+      }
+    }
+
+    if (splitAt === -1) {
+      // Everything fits on one line
+      line1 = built;
+    } else if (twoLine) {
+      line1 = built || truncate(words[0], maxChars); // at least one word on line 1
+      const rest = words.slice(splitAt).join(' ');
+      line2 = truncate(rest, maxChars);
+    } else {
+      // Single-line with truncation
+      line1 = truncate(built || words[0], maxChars);
+    }
+  }
+
+  const twoLines   = line2 !== '';
+  const lineGap    = fontSize * 1.15;
+  // Total text block height: 1 or 2 name lines + optional pct line
+  const textBlockH = (twoLines ? lineGap * 2 : lineGap) + (showPct ? lineGap * 0.9 : 0);
+  const textTop    = y + height / 2 - textBlockH / 2 + lineGap / 2;
+
   return (
     <g
       onMouseEnter={(e) => setTooltip?.({ x: e.clientX, y: e.clientY, node: props })}
@@ -819,18 +863,30 @@ function HeatmapCell(props) {
     >
       <rect x={x + 1} y={y + 1} width={width - 2} height={height - 2} fill={fill} rx={2} />
       {showName && (
-        <text
-          x={x + width / 2} y={y + height / 2 - (showPct ? fontSizePct * 0.7 : 0)}
-          textAnchor="middle" dominantBaseline="middle"
-          fontSize={fontSize} fontWeight={600} fill={textFill}
-          style={{ pointerEvents: 'none', userSelect: 'none' }}
-        >
-          {name}
-        </text>
+        <>
+          <text
+            x={x + width / 2} y={textTop}
+            textAnchor="middle" dominantBaseline="middle"
+            fontSize={fontSize} fontWeight={600} fill={textFill}
+            style={{ pointerEvents: 'none', userSelect: 'none' }}
+          >
+            {line1}
+          </text>
+          {twoLines && (
+            <text
+              x={x + width / 2} y={textTop + lineGap}
+              textAnchor="middle" dominantBaseline="middle"
+              fontSize={fontSize} fontWeight={600} fill={textFill}
+              style={{ pointerEvents: 'none', userSelect: 'none' }}
+            >
+              {line2}
+            </text>
+          )}
+        </>
       )}
       {showPct && (
         <text
-          x={x + width / 2} y={y + height / 2 + fontSize * 0.7}
+          x={x + width / 2} y={textTop + (twoLines ? lineGap * 2 : lineGap)}
           textAnchor="middle" dominantBaseline="middle"
           fontSize={fontSizePct} fill={textFill} opacity={0.75}
           style={{ pointerEvents: 'none', userSelect: 'none' }}
