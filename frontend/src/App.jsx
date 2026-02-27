@@ -1112,7 +1112,9 @@ function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, coll
   const [holdingsLoading, setHLoading]  = useState(false);
   const [holdingsError, setHError]      = useState(null);
 
-  const [sortKey, setSortKey] = useState('value_desc');
+  const [sortKey, setSortKey] = useState('value');
+  const [sortDir, setSortDir] = useState('desc');
+  const sortKeyFull = `${sortKey}_${sortDir}`;
 
   // Load available quarters
   useEffect(() => {
@@ -1290,27 +1292,32 @@ function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, coll
 
               {/* Sort control */}
               <div className="flex items-center gap-2 pb-3 mb-1 border-b border-gray-50">
-                <span className="text-[11px] text-gray-400">Sort by</span>
-                <select
-                  value={sortKey}
-                  onChange={(e) => setSortKey(e.target.value)}
-                  className="text-[11px] border border-gray-200 rounded px-2 py-1 text-gray-600 bg-white
-                             focus:outline-none focus:ring-1 focus:ring-blue-400 cursor-pointer
-                             hover:border-gray-300 transition-colors"
-                >
-                  <option value="value_desc">Value ↓</option>
-                  <option value="value_asc">Value ↑</option>
-                  <option value="pct_desc">% Change ↓</option>
-                  <option value="pct_asc">% Change ↑</option>
-                  <option value="shares_desc">Shares ↓</option>
-                  <option value="shares_asc">Shares ↑</option>
-                </select>
+                <span className="text-[11px] text-gray-400">Sort:</span>
+                {[['value', 'Value'], ['pct', '%'], ['shares', 'Shares']].map(([key, label]) => {
+                  const active = sortKey === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        if (active) setSortDir((d) => d === 'desc' ? 'asc' : 'desc');
+                        else { setSortKey(key); setSortDir('desc'); }
+                      }}
+                      className={`text-xs px-2.5 py-1 rounded-full border border-gray-200 transition-colors ${
+                        active
+                          ? 'bg-gray-200 text-gray-900 font-semibold'
+                          : 'bg-transparent text-gray-400 hover:text-gray-600'
+                      }`}
+                    >
+                      {label}{active ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
+                    </button>
+                  );
+                })}
               </div>
 
-              <ChangeGroup items={changes.changes.new}       type="new"       label="New Positions" sortKey={sortKey} />
-              <ChangeGroup items={changes.changes.increased} type="increased" label="Increased"      sortKey={sortKey} />
-              <ChangeGroup items={changes.changes.decreased} type="decreased" label="Decreased"      sortKey={sortKey} />
-              <ChangeGroup items={changes.changes.closed}    type="closed"    label="Closed"         sortKey={sortKey} />
+              <ChangeGroup items={changes.changes.new}       type="new"       label="New Positions" sortKey={sortKeyFull} />
+              <ChangeGroup items={changes.changes.increased} type="increased" label="Increased"      sortKey={sortKeyFull} />
+              <ChangeGroup items={changes.changes.decreased} type="decreased" label="Decreased"      sortKey={sortKeyFull} />
+              <ChangeGroup items={changes.changes.closed}    type="closed"    label="Closed"         sortKey={sortKeyFull} />
             </div>
           )}
 
