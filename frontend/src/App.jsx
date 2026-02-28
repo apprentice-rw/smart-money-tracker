@@ -793,6 +793,11 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
 
 // ── Heatmap view ─────────────────────────────────────────────────
 
+// Truncate a string to max chars, appending ellipsis if cut.
+function truncate(str, max) {
+  return str.length <= max ? str : str.slice(0, max - 1).trimEnd() + '…';
+}
+
 // Custom SVG cell renderer for Recharts Treemap.
 // Recharts clones this element with treemap node props; all data fields are available.
 // Uses HeatmapTooltipCtx to communicate hover state to the parent HeatmapRow.
@@ -812,12 +817,8 @@ function HeatmapCell(props) {
   const showPct     = showName && fontSizePct >= 7 && sharesPct != null && height > 34;
 
   // Word-wrap the name into 1 or 2 lines, truncating with ellipsis if needed
-  const charsPerPx = 1 / (fontSize * 0.6); // ~0.6em per char
-  const maxChars   = Math.max(1, Math.floor(width * charsPerPx) - 1);
-
-  function truncate(str, max) {
-    return str.length <= max ? str : str.slice(0, max - 1).trimEnd() + '…';
-  }
+  const pxPerChar = fontSize * 0.6; // ~0.6em per character
+  const maxChars  = Math.max(1, Math.floor(width / pxPerChar) - 1);
 
   let line1 = '', line2 = '';
   if (showName) {
@@ -1236,11 +1237,11 @@ function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, coll
           </div>
         </div>
 
-        {/* Sort pills — shown in header so they stay visible while scrolling */}
-        {!collapsed && (
+        {/* Sort pills — only shown when changes data is present or loading (hidden on error/oldest quarter) */}
+        {!collapsed && (changes || changesLoading) && (
           <div className="flex items-center gap-2 pt-3">
             <span className="text-[11px] text-gray-400">Sort:</span>
-            {[['value', 'Value'], ['pct', '%'], ['shares', 'Shares']].map(([key, label]) => {
+            {[['value', 'Value'], ['pct', '% Chg'], ['shares', 'Shares']].map(([key, label]) => {
               const active = sortKey === key;
               return (
                 <button
