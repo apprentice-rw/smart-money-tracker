@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+body {
+  background-color: #ebebed;
+}
+
 /* Smooth chevron rotation */
 .chevron { transition: transform 0.2s ease; }
 .chevron.open { transform: rotate(90deg); }

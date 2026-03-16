@@ -394,7 +394,7 @@ class CardErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="bg-white border border-red-100 rounded-2xl shadow-sm p-5">
+        <div className="bg-white border border-red-100 rounded-3xl shadow-lg p-5">
           <p className="text-sm font-semibold text-red-400 mb-1">Failed to render card</p>
           <p className="text-xs text-gray-400">{this.state.error?.message}</p>
         </div>
@@ -1161,7 +1161,7 @@ function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, coll
   const currentFiling = filings.find((f) => f.period_of_report === period);
 
   return (
-    <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+    <div className="bg-white rounded-3xl shadow-lg overflow-hidden flex flex-col">
 
       {/* ── Card header (always visible) ── */}
       <div className={`px-5 pt-5 border-b border-gray-50 ${!collapsed ? 'pb-3' : 'pb-4'}`}>
@@ -1669,11 +1669,12 @@ function App() {
   return (
     <TickerCtx.Provider value={tickerMap}>
       <StockDrawerCtx.Provider value={openStockDrawer}>
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      {/* ── Sticky header zone ── */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-8 py-5">
 
-        {/* Page header */}
-        <header className="mb-8">
-          <div className="flex items-start justify-between gap-4">
+          {/* Title row + controls */}
+          <div className="flex items-start justify-between gap-4 mb-3">
             <div>
               <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
                 Smart Money Tracker
@@ -1722,12 +1723,17 @@ function App() {
               </div>
             </div>
           </div>
-        </header>
 
-        {/* Global search */}
-        <div className="mb-8 max-w-2xl">
-          <SearchBar institutions={institutions} cardRefsMap={cardRefsMap} setHighlightId={setHighlightId} />
+          {/* Search bar — constrained width, elevated */}
+          <div className="max-w-2xl">
+            <SearchBar institutions={institutions} cardRefsMap={cardRefsMap} setHighlightId={setHighlightId} />
+          </div>
+
         </div>
+      </div>
+
+      {/* ── Content area ── */}
+      <div className="max-w-7xl mx-auto px-4 py-6">
 
         {/* API error */}
         {error && (
@@ -1814,7 +1820,7 @@ function App() {
               <span className="text-gray-300 ml-auto">Block size = portfolio weight · Hover for details</span>
             </div>
 
-            <div className="bg-white border border-gray-100 rounded-2xl shadow-sm divide-y divide-gray-100 overflow-hidden">
+            <div className="bg-white rounded-3xl shadow-lg divide-y divide-gray-100 overflow-hidden">
               {orderedInsts.map((inst) => (
                 <HeatmapRow key={inst.id} institution={inst} />
               ))}
@@ -1823,10 +1829,10 @@ function App() {
         )}
 
         {/* Footer */}
-        <footer className="mt-14 text-center text-xs text-gray-300">
+        <footer className="mt-14 text-center text-xs text-gray-400">
           Smart Money Tracker · SEC EDGAR 13F data
         </footer>
-      </div>
+      </div>{/* end content area */}
 
       {/* Stock history drawer — rendered via portal when a stock is clicked */}
       {drawerCusip && (
