@@ -1017,7 +1017,7 @@ function HeatmapRow({ institution }) {
 
         {/* Left panel — institution meta */}
         <div className="w-48 flex-shrink-0 flex flex-col justify-center gap-1.5 px-4 border-r border-gray-100">
-          <p className="text-sm font-bold text-gray-900 leading-snug">{institution.name}</p>
+          <p className="text-sm font-bold text-gray-900 leading-snug">{institution.display_name || institution.name}</p>
           {holdingsData && (
             <p className="text-xs text-gray-400">{fmtVal(holdingsData.total_value)}</p>
           )}
@@ -1177,7 +1177,7 @@ function InstitutionCard({ institution, onAumLoaded, onDragHandleMouseDown, coll
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2 flex-wrap">
               <h2 className="text-base font-bold text-gray-900 leading-tight">
-                {institution.name}
+                {institution.display_name || institution.name}
               </h2>
               {/* AUM shown inline when collapsed */}
               {collapsed && holdingsData && (
@@ -1554,18 +1554,12 @@ function App() {
     hIcon.textContent = '⠿';
     hIcon.style.cssText = 'color:#9ca3af;font-size:18px;flex-shrink:0';
     const hName = document.createElement('span');
-    hName.textContent = inst ? inst.name : '';
+    hName.textContent = inst ? (inst.display_name || inst.name) : '';
     hName.style.cssText = 'font-size:14px;font-weight:700;color:#111827;'
       + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     row.appendChild(hIcon);
     row.appendChild(hName);
     ghost.appendChild(row);
-    if (inst) {
-      const sub = document.createElement('div');
-      sub.textContent = 'CIK\u00a0' + inst.cik;
-      sub.style.cssText = 'font-size:11px;color:#9ca3af;margin-top:3px;padding-left:26px';
-      ghost.appendChild(sub);
-    }
     document.body.appendChild(ghost);
     ghostRef.current = ghost;
 
