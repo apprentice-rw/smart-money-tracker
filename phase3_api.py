@@ -568,9 +568,21 @@ def _consensus_ticker_map(conn: Connection, cusips: list) -> dict:
 def consensus_quarters(conn: Connection = Depends(get_conn)) -> dict:
     """Return all available quarters across all institutions, newest first."""
     rows = conn.execute(
-        text("SELECT DISTINCT period_of_report FROM filings ORDER BY period_of_report DESC")
+        text("""
+        SELECT period_of_report,
+               MIN(filing_date) AS filing_date_min,
+               MAX(filing_date) AS filing_date_max
+        FROM filings
+        GROUP BY period_of_report
+        ORDER BY period_of_report DESC
+        """)
     ).fetchall()
-    return {"quarters": [r[0] for r in rows]}
+    return {
+        "quarters": [
+            {"period": r[0], "filing_date_min": r[1], "filing_date_max": r[2]}
+            for r in rows
+        ]
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -586,6 +598,18 @@ def consensus_holdings(
 ) -> dict:
     """Aggregate holdings across institutions for a given quarter."""
     resolved = _consensus_period(conn, period)
+
+    inst_totals_rows = conn.execute(
+        text("""
+        SELECT f.institution_id, SUM(h.value) AS total_value
+        FROM holdings h
+        JOIN filings f ON f.id = h.filing_id
+        WHERE f.period_of_report = :period
+        GROUP BY f.institution_id
+        """),
+        {"period": resolved},
+    ).fetchall()
+    inst_totals = {r[0]: r[1] for r in inst_totals_rows}
 
     total_institutions = conn.execute(
         text("SELECT COUNT(DISTINCT institution_id) FROM filings WHERE period_of_report = :p"),
@@ -631,6 +655,7 @@ def consensus_holdings(
             "name": r[3],
             "value": r[4],
             "shares": r[5],
+            "institution_total_value": inst_totals.get(r[2], 0),
         })
 
     tickers = _consensus_ticker_map(conn, list(agg.keys()))
@@ -674,6 +699,18 @@ def consensus_buying(
     """Stocks being bought (new or increased) by multiple institutions."""
     resolved = _consensus_period(conn, period)
     prev = _consensus_prev_period(conn, resolved)
+
+    inst_totals_rows = conn.execute(
+        text("""
+        SELECT f.institution_id, SUM(h.value) AS total_value
+        FROM holdings h
+        JOIN filings f ON f.id = h.filing_id
+        WHERE f.period_of_report = :period
+        GROUP BY f.institution_id
+        """),
+        {"period": resolved},
+    ).fetchall()
+    inst_totals = {r[0]: r[1] for r in inst_totals_rows}
 
     rows = conn.execute(
         text("""
@@ -719,6 +756,7 @@ def consensus_buying(
             "curr_value": r[3],
             "shares_pct": r[7],
             "shares_delta": r[8],
+            "institution_total_value": inst_totals.get(r[9], 0),
         })
 
     tickers = _consensus_ticker_map(conn, list(agg.keys()))
@@ -761,6 +799,18 @@ def consensus_selling(
     """Stocks being sold (closed or decreased) by multiple institutions."""
     resolved = _consensus_period(conn, period)
     prev = _consensus_prev_period(conn, resolved)
+
+    inst_totals_rows = conn.execute(
+        text("""
+        SELECT f.institution_id, SUM(h.value) AS total_value
+        FROM holdings h
+        JOIN filings f ON f.id = h.filing_id
+        WHERE f.period_of_report = :period
+        GROUP BY f.institution_id
+        """),
+        {"period": resolved},
+    ).fetchall()
+    inst_totals = {r[0]: r[1] for r in inst_totals_rows}
 
     rows = conn.execute(
         text("""
@@ -807,6 +857,7 @@ def consensus_selling(
             "curr_value": r[3],
             "shares_pct": r[7],
             "shares_delta": r[8],
+            "institution_total_value": inst_totals.get(r[9], 0),
         })
 
     tickers = _consensus_ticker_map(conn, list(agg.keys()))
@@ -958,7 +1009,21 @@ def consensus_persistent(
             "institution_id": inst_id,
             "name": inst_name,
             "quarters_held": qheld,
+            "institution_total_value": inst_totals.get(inst_id, 0),
         })
+
+    # Institution total portfolio values for latest period
+    inst_totals_rows = conn.execute(
+        text("""
+        SELECT f.institution_id, SUM(h.value) AS total_value
+        FROM holdings h
+        JOIN filings f ON f.id = h.filing_id
+        WHERE f.period_of_report = :latest
+        GROUP BY f.institution_id
+        """),
+        {"latest": latest},
+    ).fetchall()
+    inst_totals = {r[0]: r[1] for r in inst_totals_rows}
 
     # Latest value lookup
     latest_value_rows = conn.execute(

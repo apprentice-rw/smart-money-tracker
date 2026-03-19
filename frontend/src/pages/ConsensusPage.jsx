@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useCallback } from 'react';
+import React, { useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import * as API from '../api.js';
 import { TickerCtx, StockDrawerCtx } from '../contexts.js';
 
@@ -17,6 +17,54 @@ function fmtPeriod(s) {
   if (!s) return '';
   const [year, month] = s.split('-');
   return `Q${Math.ceil(parseInt(month, 10) / 3)} ${year}`;
+}
+
+function toTitleCase(str) {
+  if (!str) return '';
+  return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function periodRange(periodEnd) {
+  const d = new Date(periodEnd + 'T00:00:00');
+  const qStart = new Date(d.getFullYear(), d.getMonth() - 2, 1);
+  const fmt = (dt) => dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `${fmt(qStart)} – ${fmt(d)}, ${d.getFullYear()}`;
+}
+
+function fmtFilingDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
+// ── SortPills ────────────────────────────────────────────────────────────────
+
+function SortPills({ options, sortKey, sortDir, onChange }) {
+  return (
+    <div className="flex gap-1 mb-3">
+      {options.map(({ key, label }) => {
+        const active = key === sortKey;
+        return (
+          <button
+            key={key}
+            onClick={() => {
+              if (active) {
+                onChange(key, sortDir === 'desc' ? 'asc' : 'desc');
+              } else {
+                onChange(key, 'desc');
+              }
+            }}
+            className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
+              active
+                ? 'bg-gray-200 text-gray-900 font-semibold'
+                : 'bg-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            {label}{active ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 // ── HolderBadges ────────────────────────────────────────────────────────────
@@ -157,9 +205,42 @@ function ShowMoreTable({ items, defaultRows = 10, renderRow, emptyMsg = 'No resu
   );
 }
 
+// ── Sort helpers ─────────────────────────────────────────────────────────────
+
+function avgWeight(items, valueKey, totalKey) {
+  if (!items || !items.length) return 0;
+  const sum = items.reduce((acc, h) => {
+    const total = h[totalKey] || 0;
+    return acc + (total > 0 ? (h[valueKey] || 0) / total : 0);
+  }, 0);
+  return sum / items.length;
+}
+
 // ── Module: Top Consensus Holdings ──────────────────────────────────────────
 
+const HOLDINGS_SORT_OPTS = [
+  { key: 'holder_count', label: 'Institutions' },
+  { key: 'total_value',  label: 'Total Value' },
+  { key: 'avg_weight',   label: 'Avg Weight' },
+];
+
 function HoldingsModule({ data, onStockClick, tickerMap }) {
+  const [sortKey, setSortKey] = useState('holder_count');
+  const [sortDir, setSortDir] = useState('desc');
+
+  const sorted = useMemo(() => {
+    if (!data?.results) return [];
+    return [...data.results].sort((a, b) => {
+      const av = sortKey === 'avg_weight'
+        ? avgWeight(a.holders, 'value', 'institution_total_value')
+        : (a[sortKey] ?? 0);
+      const bv = sortKey === 'avg_weight'
+        ? avgWeight(b.holders, 'value', 'institution_total_value')
+        : (b[sortKey] ?? 0);
+      return sortDir === 'desc' ? bv - av : av - bv;
+    });
+  }, [data, sortKey, sortDir]);
+
   if (!data) return <ModuleSpinner />;
   return (
     <ModuleCard
@@ -167,8 +248,14 @@ function HoldingsModule({ data, onStockClick, tickerMap }) {
       subtitle="Stocks held by the most institutions"
       count={data.results?.length}
     >
+      <SortPills
+        options={HOLDINGS_SORT_OPTS}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onChange={(k, d) => { setSortKey(k); setSortDir(d); }}
+      />
       <ShowMoreTable
-        items={data.results}
+        items={sorted}
         emptyMsg="No consensus holdings found"
         renderRow={(item, i) => (
           <tr
@@ -179,11 +266,11 @@ function HoldingsModule({ data, onStockClick, tickerMap }) {
             <td className="py-2 pr-3 text-gray-400 w-6 align-top">{i + 1}</td>
             <td className="py-2 pr-3 align-top">
               <div className="font-medium text-gray-900">
-                {tickerMap?.[item.cusip] || item.issuer_name}
+                {toTitleCase(item.issuer_name)}
+                {tickerMap?.[item.cusip] && (
+                  <span className="text-blue-500 font-medium text-xs ml-1.5">{tickerMap[item.cusip]}</span>
+                )}
               </div>
-              {tickerMap?.[item.cusip] && (
-                <div className="text-gray-400 text-xs">{item.issuer_name}</div>
-              )}
               <HolderBadges holders={item.holders} />
             </td>
             <td className="py-2 pl-2 text-right align-top whitespace-nowrap">
@@ -199,7 +286,29 @@ function HoldingsModule({ data, onStockClick, tickerMap }) {
 
 // ── Module: Consensus Buying ─────────────────────────────────────────────────
 
+const BUYING_SORT_OPTS = [
+  { key: 'buyer_count',       label: 'Institutions' },
+  { key: 'total_curr_value',  label: 'Total Value' },
+  { key: 'avg_weight',        label: 'Avg Weight' },
+];
+
 function BuyingModule({ data, onStockClick, tickerMap }) {
+  const [sortKey, setSortKey] = useState('buyer_count');
+  const [sortDir, setSortDir] = useState('desc');
+
+  const sorted = useMemo(() => {
+    if (!data?.results) return [];
+    return [...data.results].sort((a, b) => {
+      const av = sortKey === 'avg_weight'
+        ? avgWeight(a.buyers, 'curr_value', 'institution_total_value')
+        : (a[sortKey] ?? 0);
+      const bv = sortKey === 'avg_weight'
+        ? avgWeight(b.buyers, 'curr_value', 'institution_total_value')
+        : (b[sortKey] ?? 0);
+      return sortDir === 'desc' ? bv - av : av - bv;
+    });
+  }, [data, sortKey, sortDir]);
+
   if (!data) return <ModuleCard title="Consensus Buying" subtitle="Loading..."><ModuleSpinner /></ModuleCard>;
   return (
     <ModuleCard
@@ -207,8 +316,14 @@ function BuyingModule({ data, onStockClick, tickerMap }) {
       subtitle={data.prev_period ? `New/increased vs ${fmtPeriod(data.prev_period)}` : 'New & increased positions'}
       count={data.results?.length}
     >
+      <SortPills
+        options={BUYING_SORT_OPTS}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onChange={(k, d) => { setSortKey(k); setSortDir(d); }}
+      />
       <ShowMoreTable
-        items={data.results}
+        items={sorted}
         emptyMsg="No consensus buying found"
         renderRow={(item, i) => (
           <tr
@@ -219,11 +334,11 @@ function BuyingModule({ data, onStockClick, tickerMap }) {
             <td className="py-2 pr-3 text-gray-400 w-6 align-top">{i + 1}</td>
             <td className="py-2 pr-3 align-top">
               <div className="font-medium text-gray-900">
-                {tickerMap?.[item.cusip] || item.issuer_name}
+                {toTitleCase(item.issuer_name)}
+                {tickerMap?.[item.cusip] && (
+                  <span className="text-blue-500 font-medium text-xs ml-1.5">{tickerMap[item.cusip]}</span>
+                )}
               </div>
-              {tickerMap?.[item.cusip] && (
-                <div className="text-gray-400 text-xs">{item.issuer_name}</div>
-              )}
               <BuyerBadges buyers={item.buyers} />
             </td>
             <td className="py-2 pl-2 text-right align-top whitespace-nowrap">
@@ -239,7 +354,29 @@ function BuyingModule({ data, onStockClick, tickerMap }) {
 
 // ── Module: Consensus Selling ────────────────────────────────────────────────
 
+const SELLING_SORT_OPTS = [
+  { key: 'seller_count',      label: 'Institutions' },
+  { key: 'total_prev_value',  label: 'Total Value' },
+  { key: 'avg_weight',        label: 'Avg Weight' },
+];
+
 function SellingModule({ data, onStockClick, tickerMap }) {
+  const [sortKey, setSortKey] = useState('seller_count');
+  const [sortDir, setSortDir] = useState('desc');
+
+  const sorted = useMemo(() => {
+    if (!data?.results) return [];
+    return [...data.results].sort((a, b) => {
+      const av = sortKey === 'avg_weight'
+        ? avgWeight(a.sellers, 'prev_value', 'institution_total_value')
+        : (a[sortKey] ?? 0);
+      const bv = sortKey === 'avg_weight'
+        ? avgWeight(b.sellers, 'prev_value', 'institution_total_value')
+        : (b[sortKey] ?? 0);
+      return sortDir === 'desc' ? bv - av : av - bv;
+    });
+  }, [data, sortKey, sortDir]);
+
   if (!data) return <ModuleCard title="Consensus Selling" subtitle="Loading..."><ModuleSpinner /></ModuleCard>;
   return (
     <ModuleCard
@@ -247,8 +384,14 @@ function SellingModule({ data, onStockClick, tickerMap }) {
       subtitle={data.prev_period ? `Closed/decreased vs ${fmtPeriod(data.prev_period)}` : 'Closed & decreased positions'}
       count={data.results?.length}
     >
+      <SortPills
+        options={SELLING_SORT_OPTS}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onChange={(k, d) => { setSortKey(k); setSortDir(d); }}
+      />
       <ShowMoreTable
-        items={data.results}
+        items={sorted}
         emptyMsg="No consensus selling found"
         renderRow={(item, i) => (
           <tr
@@ -259,11 +402,11 @@ function SellingModule({ data, onStockClick, tickerMap }) {
             <td className="py-2 pr-3 text-gray-400 w-6 align-top">{i + 1}</td>
             <td className="py-2 pr-3 align-top">
               <div className="font-medium text-gray-900">
-                {tickerMap?.[item.cusip] || item.issuer_name}
+                {toTitleCase(item.issuer_name)}
+                {tickerMap?.[item.cusip] && (
+                  <span className="text-blue-500 font-medium text-xs ml-1.5">{tickerMap[item.cusip]}</span>
+                )}
               </div>
-              {tickerMap?.[item.cusip] && (
-                <div className="text-gray-400 text-xs">{item.issuer_name}</div>
-              )}
               <SellerBadges sellers={item.sellers} />
             </td>
             <td className="py-2 pl-2 text-right align-top whitespace-nowrap">
@@ -279,7 +422,24 @@ function SellingModule({ data, onStockClick, tickerMap }) {
 
 // ── Module: Emerging Consensus ───────────────────────────────────────────────
 
+const EMERGING_SORT_OPTS = [
+  { key: 'holder_delta', label: 'Institutions' },
+  { key: 'total_value',  label: 'Total Value' },
+];
+
 function EmergingModule({ data, onStockClick, tickerMap }) {
+  const [sortKey, setSortKey] = useState('holder_delta');
+  const [sortDir, setSortDir] = useState('desc');
+
+  const sorted = useMemo(() => {
+    if (!data?.results) return [];
+    return [...data.results].sort((a, b) => {
+      const av = a[sortKey] ?? 0;
+      const bv = b[sortKey] ?? 0;
+      return sortDir === 'desc' ? bv - av : av - bv;
+    });
+  }, [data, sortKey, sortDir]);
+
   if (!data) return <ModuleCard title="Emerging Consensus" subtitle="Loading..."><ModuleSpinner /></ModuleCard>;
   return (
     <ModuleCard
@@ -287,8 +447,14 @@ function EmergingModule({ data, onStockClick, tickerMap }) {
       subtitle={data.prev_period ? `Holder count growing vs ${fmtPeriod(data.prev_period)}` : 'Growing institutional interest'}
       count={data.results?.length}
     >
+      <SortPills
+        options={EMERGING_SORT_OPTS}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onChange={(k, d) => { setSortKey(k); setSortDir(d); }}
+      />
       <ShowMoreTable
-        items={data.results}
+        items={sorted}
         emptyMsg="No emerging consensus found (requires prior quarter data)"
         renderRow={(item, i) => (
           <tr
@@ -299,11 +465,11 @@ function EmergingModule({ data, onStockClick, tickerMap }) {
             <td className="py-2 pr-3 text-gray-400 w-6 align-top">{i + 1}</td>
             <td className="py-2 pr-3 align-top">
               <div className="font-medium text-gray-900">
-                {tickerMap?.[item.cusip] || item.issuer_name}
+                {toTitleCase(item.issuer_name)}
+                {tickerMap?.[item.cusip] && (
+                  <span className="text-blue-500 font-medium text-xs ml-1.5">{tickerMap[item.cusip]}</span>
+                )}
               </div>
-              {tickerMap?.[item.cusip] && (
-                <div className="text-gray-400 text-xs">{item.issuer_name}</div>
-              )}
             </td>
             <td className="py-2 pl-2 text-right align-top whitespace-nowrap">
               <div className="font-medium text-green-600">+{item.holder_delta} holders</div>
@@ -319,7 +485,24 @@ function EmergingModule({ data, onStockClick, tickerMap }) {
 
 // ── Module: Persistent Holdings ──────────────────────────────────────────────
 
+const PERSISTENT_SORT_OPTS = [
+  { key: 'persistent_holder_count', label: 'Institutions' },
+  { key: 'latest_total_value',      label: 'Total Value' },
+];
+
 function PersistentModule({ data, onStockClick, tickerMap }) {
+  const [sortKey, setSortKey] = useState('persistent_holder_count');
+  const [sortDir, setSortDir] = useState('desc');
+
+  const sorted = useMemo(() => {
+    if (!data?.results) return [];
+    return [...data.results].sort((a, b) => {
+      const av = a[sortKey] ?? 0;
+      const bv = b[sortKey] ?? 0;
+      return sortDir === 'desc' ? bv - av : av - bv;
+    });
+  }, [data, sortKey, sortDir]);
+
   if (!data) return (
     <ModuleCard title="Persistent Holdings" subtitle="Loading..." fullWidth>
       <ModuleSpinner />
@@ -332,8 +515,14 @@ function PersistentModule({ data, onStockClick, tickerMap }) {
       count={data.results?.length}
       fullWidth
     >
+      <SortPills
+        options={PERSISTENT_SORT_OPTS}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onChange={(k, d) => { setSortKey(k); setSortDir(d); }}
+      />
       <ShowMoreTable
-        items={data.results}
+        items={sorted}
         emptyMsg="No persistent holdings found with current filters"
         renderRow={(item, i) => (
           <tr
@@ -344,11 +533,11 @@ function PersistentModule({ data, onStockClick, tickerMap }) {
             <td className="py-2 pr-3 text-gray-400 w-6 align-top">{i + 1}</td>
             <td className="py-2 pr-3 align-top min-w-[160px]">
               <div className="font-medium text-gray-900">
-                {tickerMap?.[item.cusip] || item.issuer_name}
+                {toTitleCase(item.issuer_name)}
+                {tickerMap?.[item.cusip] && (
+                  <span className="text-blue-500 font-medium text-xs ml-1.5">{tickerMap[item.cusip]}</span>
+                )}
               </div>
-              {tickerMap?.[item.cusip] && (
-                <div className="text-gray-400 text-xs">{item.issuer_name}</div>
-              )}
               <HolderBadges holders={item.holders} />
             </td>
             <td className="py-2 px-3 text-right align-top whitespace-nowrap">
@@ -407,13 +596,13 @@ function QuarterSelector({ quarters, selected, onSelect }) {
           <div className="absolute right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 min-w-[120px]">
             {quarters.map((q) => (
               <button
-                key={q}
-                onClick={() => { onSelect(q); setOpen(false); }}
+                key={q.period}
+                onClick={() => { onSelect(q.period); setOpen(false); }}
                 className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 transition-colors ${
-                  q === selected ? 'font-semibold text-gray-900' : 'text-gray-600'
+                  q.period === selected ? 'font-semibold text-gray-900' : 'text-gray-600'
                 }`}
               >
-                {fmtQ(q)}
+                {fmtQ(q.period)}
               </button>
             ))}
           </div>
@@ -429,11 +618,13 @@ export default function ConsensusPage({ tickerMap: tickerMapProp, onStockClick: 
   // Try context first, fall back to props (for flexibility)
   const ctxTickers  = useContext(TickerCtx);
   const ctxDrawer   = useContext(StockDrawerCtx);
-  const tickerMap   = ctxTickers  ?? tickerMapProp  ?? {};
-  const openDrawer  = ctxDrawer   ?? onStockClickProp ?? (() => {});
+  // B1: TickerCtx provides a Map object — convert to plain object for bracket access
+  const rawTickers  = ctxTickers ?? tickerMapProp ?? {};
+  const tickerMap   = rawTickers instanceof Map ? Object.fromEntries(rawTickers) : rawTickers;
+  const openDrawer  = ctxDrawer ?? onStockClickProp ?? (() => {});
 
-  const [quarters,       setQuarters]       = useState([]);
-  const [selectedQ,      setSelectedQ]      = useState(null);
+  const [quarters,       setQuarters]       = useState([]);   // array of {period, filing_date_min, filing_date_max}
+  const [selectedQ,      setSelectedQ]      = useState(null); // period string
   const [holdingsData,   setHoldingsData]   = useState(null);
   const [buyingData,     setBuyingData]     = useState(null);
   const [sellingData,    setSellingData]    = useState(null);
@@ -446,7 +637,7 @@ export default function ConsensusPage({ tickerMap: tickerMapProp, onStockClick: 
   useEffect(() => {
     API.getConsensusQuarters().then(({ quarters: qs }) => {
       setQuarters(qs);
-      if (qs.length) setSelectedQ(qs[0]);
+      if (qs.length) setSelectedQ(qs[0].period);
     }).catch(console.error);
   }, []);
 
@@ -482,6 +673,7 @@ export default function ConsensusPage({ tickerMap: tickerMapProp, onStockClick: 
 
   const totalInstitutions = holdingsData?.total_institutions ?? null;
   const quarterCount      = quarters.length;
+  const selectedMeta      = quarters.find((q) => q.period === selectedQ);
 
   return (
     <div>
@@ -494,6 +686,14 @@ export default function ConsensusPage({ tickerMap: tickerMapProp, onStockClick: 
               Cross-institutional signals · {quarterCount > 0 ? `${quarterCount} quarters` : ''}
               {totalInstitutions != null ? ` · ${totalInstitutions} institutions` : ''}
             </p>
+            {selectedMeta && (
+              <p className="text-xs text-gray-400 mt-1">
+                Period: {periodRange(selectedMeta.period)}
+                {selectedMeta.filing_date_min && selectedMeta.filing_date_max && (
+                  <> · Filings submitted: {fmtFilingDate(selectedMeta.filing_date_min)} – {fmtFilingDate(selectedMeta.filing_date_max)}</>
+                )}
+              </p>
+            )}
           </div>
           <QuarterSelector
             quarters={quarters}
