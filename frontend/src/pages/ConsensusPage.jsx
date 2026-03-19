@@ -636,8 +636,14 @@ export default function ConsensusPage({ tickerMap: tickerMapProp, onStockClick: 
   // Load quarter list on mount
   useEffect(() => {
     API.getConsensusQuarters().then(({ quarters: qs }) => {
-      setQuarters(qs);
-      if (qs.length) setSelectedQ(qs[0].period);
+      // Normalize: handle old string format and new object format
+      const normalized = qs.map((q) =>
+        typeof q === 'string'
+          ? { period: q, filing_date_min: null, filing_date_max: null }
+          : q
+      );
+      setQuarters(normalized);
+      if (normalized.length) setSelectedQ(normalized[0].period);
     }).catch(console.error);
   }, []);
 
