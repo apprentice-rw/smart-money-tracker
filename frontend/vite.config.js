@@ -13,6 +13,7 @@ export default defineConfig({
       '/search':       API_ORIGIN,
       '/tickers':      API_ORIGIN,
       '/stock':        API_ORIGIN,
+      '/consensus':    API_ORIGIN,
     },
   },
   build: { outDir: 'dist' },
