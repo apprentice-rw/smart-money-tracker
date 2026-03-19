@@ -1657,66 +1657,100 @@ function App() {
   return (
     <TickerCtx.Provider value={tickerMap}>
       <StockDrawerCtx.Provider value={openStockDrawer}>
-      {/* ── Sticky header zone ── */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-8 py-5">
+      {/* ── Global navbar ── */}
+      <nav className="bg-white/90 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-8 h-14 flex items-center justify-between">
 
-          {/* Title row + controls */}
-          <div className="flex items-start justify-between gap-4 mb-3">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
-                Smart Money Tracker
-              </h1>
-              <p className="text-sm text-gray-500 mt-1">
-                SEC 13F filings · institutional position changes
-              </p>
+          {/* Left: Tidemark wordmark */}
+          <span className="text-xl font-bold tracking-tight text-gray-900">
+            Tidemark
+          </span>
+
+          {/* Center: Nav links */}
+          <div className="flex items-center gap-8">
+            <button className="text-sm font-semibold text-gray-900 border-b-2 border-gray-900 pb-0.5">
+              Institutions
+            </button>
+            <div className="relative group">
+              <span className="text-sm text-gray-400 cursor-default">Stocks</span>
+              <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 px-2 py-1
+                              bg-gray-800 text-white text-xs rounded opacity-0
+                              group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                Coming Soon
+              </div>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0 mt-1">
-              {/* Cards-only controls — hidden in heatmap view */}
-              {view === 'cards' && (
-                <>
-                  <button
-                    onClick={allCollapsed ? expandAll : collapseAll}
-                    className="text-xs text-gray-400 hover:text-gray-700
-                               border border-gray-200 hover:border-gray-300 rounded-lg
-                               px-3 py-1.5 transition-colors bg-white shadow-sm"
-                  >
-                    {allCollapsed ? 'Expand All' : 'Collapse All'}
-                  </button>
-                  <button
-                    onClick={resetOrder}
-                    title="Restore default order (AUM descending)"
-                    className="text-xs text-gray-400 hover:text-gray-700
-                               border border-gray-200 hover:border-gray-300 rounded-lg
-                               px-3 py-1.5 transition-colors bg-white shadow-sm"
-                  >
-                    Reset Order
-                  </button>
-                </>
-              )}
-
-              {/* View toggle — segmented control */}
-              <div className="flex rounded-lg border border-gray-200 overflow-hidden bg-white shadow-sm">
-                {[['cards', '≡ Cards'], ['heatmap', '▦ Heatmap']].map(([v, label]) => (
-                  <button
-                    key={v}
-                    onClick={() => switchView(v)}
-                    className={`text-xs px-3 py-1.5 transition-colors ${
-                      view === v
-                        ? 'bg-gray-100 text-gray-900 font-semibold'
-                        : 'text-gray-400 hover:text-gray-700'
-                    }`}
-                  >{label}</button>
-                ))}
+            <div className="relative group">
+              <span className="text-sm text-gray-400 cursor-default">Consensus</span>
+              <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 px-2 py-1
+                              bg-gray-800 text-white text-xs rounded opacity-0
+                              group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                Coming Soon
               </div>
             </div>
           </div>
 
-          {/* Search bar — constrained width, elevated */}
-          <div className="max-w-2xl">
-            <SearchBar institutions={institutions} cardRefsMap={cardRefsMap} setHighlightId={setHighlightId} />
+          {/* Right: placeholder to balance wordmark */}
+          <div className="w-20" />
+
+        </div>
+      </nav>
+
+      {/* ── Page toolbar ── */}
+      <div className="max-w-7xl mx-auto px-8 pt-5 pb-3">
+        <div className="flex items-start justify-between gap-4 mb-3">
+          {/* Left: page title */}
+          <div>
+            <h1 className="text-lg font-semibold text-gray-900">Institutions</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              SEC 13F filings · institutional position changes
+            </p>
           </div>
 
+          {/* Right: controls */}
+          <div className="flex items-center gap-2 flex-shrink-0 mt-1">
+            {/* Cards-only controls — hidden in heatmap view */}
+            {view === 'cards' && (
+              <>
+                <button
+                  onClick={allCollapsed ? expandAll : collapseAll}
+                  className="text-xs text-gray-400 hover:text-gray-700
+                             border border-gray-200 hover:border-gray-300 rounded-lg
+                             px-3 py-1.5 transition-colors bg-white shadow-sm"
+                >
+                  {allCollapsed ? 'Expand All' : 'Collapse All'}
+                </button>
+                <button
+                  onClick={resetOrder}
+                  title="Restore default order (AUM descending)"
+                  className="text-xs text-gray-400 hover:text-gray-700
+                             border border-gray-200 hover:border-gray-300 rounded-lg
+                             px-3 py-1.5 transition-colors bg-white shadow-sm"
+                >
+                  Reset Order
+                </button>
+              </>
+            )}
+
+            {/* View toggle — segmented control */}
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden bg-white shadow-sm">
+              {[['cards', '≡ Cards'], ['heatmap', '▦ Heatmap']].map(([v, label]) => (
+                <button
+                  key={v}
+                  onClick={() => switchView(v)}
+                  className={`text-xs px-3 py-1.5 transition-colors ${
+                    view === v
+                      ? 'bg-gray-100 text-gray-900 font-semibold'
+                      : 'text-gray-400 hover:text-gray-700'
+                  }`}
+                >{label}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Search bar — constrained width */}
+        <div className="max-w-2xl">
+          <SearchBar institutions={institutions} cardRefsMap={cardRefsMap} setHighlightId={setHighlightId} />
         </div>
       </div>
 
