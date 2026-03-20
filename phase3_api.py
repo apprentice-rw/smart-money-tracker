@@ -999,19 +999,6 @@ def consensus_persistent(
         """),
     ).fetchall()
 
-    # Group by cusip
-    agg: dict = {}
-    for r in rows:
-        cusip, issuer_name, inst_id, inst_name, qheld = r[0], r[1], r[2], r[3], r[4]
-        if cusip not in agg:
-            agg[cusip] = {"cusip": cusip, "issuer_name": issuer_name, "holders": []}
-        agg[cusip]["holders"].append({
-            "institution_id": inst_id,
-            "name": inst_name,
-            "quarters_held": qheld,
-            "institution_total_value": inst_totals.get(inst_id, 0),
-        })
-
     # Institution total portfolio values for latest period
     inst_totals_rows = conn.execute(
         text("""
@@ -1024,6 +1011,19 @@ def consensus_persistent(
         {"latest": latest},
     ).fetchall()
     inst_totals = {r[0]: r[1] for r in inst_totals_rows}
+
+    # Group by cusip
+    agg: dict = {}
+    for r in rows:
+        cusip, issuer_name, inst_id, inst_name, qheld = r[0], r[1], r[2], r[3], r[4]
+        if cusip not in agg:
+            agg[cusip] = {"cusip": cusip, "issuer_name": issuer_name, "holders": []}
+        agg[cusip]["holders"].append({
+            "institution_id": inst_id,
+            "name": inst_name,
+            "quarters_held": qheld,
+            "institution_total_value": inst_totals.get(inst_id, 0),
+        })
 
     # Latest value lookup
     latest_value_rows = conn.execute(
