@@ -20,28 +20,34 @@ function fmtPeriod(s) {
 }
 
 const BRAND_OVERRIDES = {
-  'AMAZON COM INC': 'Amazon',
-  'ALPHABET INC': 'Alphabet',
-  'META PLATFORMS INC': 'Meta',
-  'APPLE INC': 'Apple',
-  'MICROSOFT CORP': 'Microsoft',
-  'NVIDIA CORPORATION': 'Nvidia',
-  'TESLA INC': 'Tesla',
-  'NETFLIX INC': 'Netflix',
-  'PALANTIR TECHNOLOGIES INC': 'Palantir',
-  'TAIWAN SEMICONDUCTOR MFG LTD': 'TSMC',
-  'SPDR S&P 500 ETF TRUST': 'SPY ETF',
-  'BROADCOM INC': 'Broadcom',
-  'SALESFORCE INC': 'Salesforce',
+  'FINL': 'Finish Line',
+  'HLDG': 'Holdings',
+  'MTR': 'Motors',
 };
+
+const UPPERCASE_WORDS = new Set(['AI', 'ETF', 'LP', 'LLP', 'USA', 'US', 'UK', 'EU', 'IPO', 'REIT', 'S&P', 'IT', 'TV', 'HR', 'PR']);
 
 function simplifyName(str) {
   if (!str) return '';
-  const override = BRAND_OVERRIDES[str.toUpperCase().trim()];
-  if (override) return override;
-  let name = str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-  name = name.replace(/\s+(Inc|Corp|Corporation|Ltd|Llc|Plc|Co|Mfg|S A|N V|Inds|Intl)\.?$/i, '').trim();
+  const upper = str.toUpperCase().trim();
+  if (BRAND_OVERRIDES[upper]) return BRAND_OVERRIDES[upper];
+  // Title-case while preserving known acronyms
+  let name = str.trim().replace(/\b(\w+)\b/g, (word) => {
+    const up = word.toUpperCase();
+    if (UPPERCASE_WORDS.has(up)) return up;
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  });
+  // Strip only safe legal suffixes
+  name = name.replace(/\s+(Inc|Corp|Corporation|Ltd|LLC|PLC)\.?$/i, '').trim();
+  // Clean trailing punctuation
+  name = name.replace(/[,\.]+$/, '').trim();
   return name;
+}
+
+function displayName(item, tickerMap) {
+  const entry = tickerMap?.[item.cusip];
+  if (entry?.name && entry.source === 'openfigi') return entry.name;
+  return simplifyName(item.issuer_name);
 }
 
 function periodRange(periodEnd) {
@@ -286,13 +292,13 @@ function HoldingsModule({ data, onStockClick, tickerMap }) {
             <td className="py-2 pr-3 text-gray-400 w-6 align-top">{i + 1}</td>
             <td className="py-2 pr-3 align-top">
               <div>
-                {tickerMap?.[item.cusip] ? (
+                {tickerMap?.[item.cusip]?.ticker ? (
                   <>
-                    <span className="text-gray-900 font-semibold text-sm">{tickerMap[item.cusip]}</span>
-                    <span className="text-gray-400 text-xs ml-1.5">{simplifyName(item.issuer_name)}</span>
+                    <span className="text-gray-900 font-semibold text-sm">{tickerMap[item.cusip].ticker}</span>
+                    <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-medium">{simplifyName(item.issuer_name)}</span>
+                  <span className="text-gray-900 font-medium">{displayName(item, tickerMap)}</span>
                 )}
               </div>
               <HolderBadges holders={item.holders} />
@@ -358,13 +364,13 @@ function BuyingModule({ data, onStockClick, tickerMap }) {
             <td className="py-2 pr-3 text-gray-400 w-6 align-top">{i + 1}</td>
             <td className="py-2 pr-3 align-top">
               <div>
-                {tickerMap?.[item.cusip] ? (
+                {tickerMap?.[item.cusip]?.ticker ? (
                   <>
-                    <span className="text-gray-900 font-semibold text-sm">{tickerMap[item.cusip]}</span>
-                    <span className="text-gray-400 text-xs ml-1.5">{simplifyName(item.issuer_name)}</span>
+                    <span className="text-gray-900 font-semibold text-sm">{tickerMap[item.cusip].ticker}</span>
+                    <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-medium">{simplifyName(item.issuer_name)}</span>
+                  <span className="text-gray-900 font-medium">{displayName(item, tickerMap)}</span>
                 )}
               </div>
               <BuyerBadges buyers={item.buyers} />
@@ -430,13 +436,13 @@ function SellingModule({ data, onStockClick, tickerMap }) {
             <td className="py-2 pr-3 text-gray-400 w-6 align-top">{i + 1}</td>
             <td className="py-2 pr-3 align-top">
               <div>
-                {tickerMap?.[item.cusip] ? (
+                {tickerMap?.[item.cusip]?.ticker ? (
                   <>
-                    <span className="text-gray-900 font-semibold text-sm">{tickerMap[item.cusip]}</span>
-                    <span className="text-gray-400 text-xs ml-1.5">{simplifyName(item.issuer_name)}</span>
+                    <span className="text-gray-900 font-semibold text-sm">{tickerMap[item.cusip].ticker}</span>
+                    <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-medium">{simplifyName(item.issuer_name)}</span>
+                  <span className="text-gray-900 font-medium">{displayName(item, tickerMap)}</span>
                 )}
               </div>
               <SellerBadges sellers={item.sellers} />
@@ -497,13 +503,13 @@ function EmergingModule({ data, onStockClick, tickerMap }) {
             <td className="py-2 pr-3 text-gray-400 w-6 align-top">{i + 1}</td>
             <td className="py-2 pr-3 align-top">
               <div>
-                {tickerMap?.[item.cusip] ? (
+                {tickerMap?.[item.cusip]?.ticker ? (
                   <>
-                    <span className="text-gray-900 font-semibold text-sm">{tickerMap[item.cusip]}</span>
-                    <span className="text-gray-400 text-xs ml-1.5">{simplifyName(item.issuer_name)}</span>
+                    <span className="text-gray-900 font-semibold text-sm">{tickerMap[item.cusip].ticker}</span>
+                    <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-medium">{simplifyName(item.issuer_name)}</span>
+                  <span className="text-gray-900 font-medium">{displayName(item, tickerMap)}</span>
                 )}
               </div>
             </td>
@@ -569,13 +575,13 @@ function PersistentModule({ data, onStockClick, tickerMap }) {
             <td className="py-2 pr-3 text-gray-400 w-6 align-top">{i + 1}</td>
             <td className="py-2 pr-3 align-top min-w-[160px]">
               <div>
-                {tickerMap?.[item.cusip] ? (
+                {tickerMap?.[item.cusip]?.ticker ? (
                   <>
-                    <span className="text-gray-900 font-semibold text-sm">{tickerMap[item.cusip]}</span>
-                    <span className="text-gray-400 text-xs ml-1.5">{simplifyName(item.issuer_name)}</span>
+                    <span className="text-gray-900 font-semibold text-sm">{tickerMap[item.cusip].ticker}</span>
+                    <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-medium">{simplifyName(item.issuer_name)}</span>
+                  <span className="text-gray-900 font-medium">{displayName(item, tickerMap)}</span>
                 )}
               </div>
               <HolderBadges holders={item.holders} />

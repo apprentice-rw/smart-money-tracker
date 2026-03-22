@@ -147,7 +147,7 @@ function SectionHeader({ type, label, count }) {
 function ChangeRow({ item, type, sortKey }) {
   const tickerMap  = useContext(TickerCtx);
   const openDrawer = useContext(StockDrawerCtx);
-  const ticker = tickerMap ? tickerMap.get(item.cusip) : null;
+  const ticker = tickerMap ? tickerMap.get(item.cusip)?.ticker : null;
 
   const isNew      = type === 'new';
   const isClosed   = type === 'closed';
@@ -332,7 +332,7 @@ function HoldingsSection({ data, loading, error }) {
                   </thead>
                   <tbody>
                     {data.holdings.map((h) => {
-                      const ticker = tickerMap ? tickerMap.get(h.cusip) : null;
+                      const ticker = tickerMap ? tickerMap.get(h.cusip)?.ticker : null;
                       const weight = data.total_value > 0
                         ? (h.value / data.total_value * 100).toFixed(1) + '%'
                         : '—';
@@ -638,7 +638,7 @@ function StockHistoryDrawer({ cusip, issuerName, onClose }) {
     return <circle key={key} cx={cx} cy={cy} r={3} fill={color} stroke="none" />;
   };
 
-  const ticker = tickerMap?.get(cusip);
+  const ticker = tickerMap?.get(cusip)?.ticker;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex">
@@ -965,7 +965,7 @@ function HeatmapRow({ institution }) {
     const cells = top.map((h) => {
       const ch = changeMap.get(h.cusip) || { changeType: 'unchanged', sharesPct: null };
       return {
-        name:       tickerMap?.get(h.cusip) || h.issuer_name.slice(0, 12),
+        name:       tickerMap?.get(h.cusip)?.ticker || h.issuer_name.slice(0, 12),
         value:      h.value,
         cusip:      h.cusip,
         issuerName: h.issuer_name,
@@ -980,7 +980,7 @@ function HeatmapRow({ institution }) {
       for (const item of changes.changes.closed || []) {
         if (!holdingCusips.has(item.cusip)) {
           cells.push({
-            name:       tickerMap?.get(item.cusip) || item.issuer_name.slice(0, 12),
+            name:       tickerMap?.get(item.cusip)?.ticker || item.issuer_name.slice(0, 12),
             value:      item.prev_value || 1, // use prev value for sizing; guard zero
             cusip:      item.cusip,
             issuerName: item.issuer_name,
@@ -1006,7 +1006,7 @@ function HeatmapRow({ institution }) {
     return cells;
   }, [holdingsData, changes, tickerMap]);
 
-  const ticker = tooltip ? tickerMap?.get(tooltip.node.cusip) : null;
+  const ticker = tooltip ? tickerMap?.get(tooltip.node.cusip)?.ticker : null;
 
   return (
     <HeatmapTooltipCtx.Provider value={setTooltip}>
@@ -1499,8 +1499,8 @@ function App() {
     API.getTickers()
       .then((d) => {
         const map = new Map();
-        for (const [cusip, ticker] of Object.entries(d.tickers)) {
-          if (cusip && ticker) map.set(cusip, ticker);
+        for (const [cusip, entry] of Object.entries(d.tickers)) {
+          if (cusip && entry) map.set(cusip, entry);
         }
         setTickerMap(map);
       })

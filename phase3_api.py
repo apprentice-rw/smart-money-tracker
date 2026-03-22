@@ -499,12 +499,12 @@ def get_tickers() -> dict:
 
         try:
             rows = conn.execute(
-                text("SELECT cusip, ticker FROM cusip_ticker_map WHERE ticker IS NOT NULL")
+                text("SELECT cusip, ticker, company_name, source FROM cusip_ticker_map WHERE ticker IS NOT NULL")
             ).fetchall()
         finally:
             conn.close()
 
-        tickers = {r[0]: r[1] for r in rows}
+        tickers = {r[0]: {"ticker": r[1], "name": r[2], "source": r[3]} for r in rows}
         _ticker_cache = {"tickers": tickers}
         _ticker_cache_ts = time.time()
         return _ticker_cache
