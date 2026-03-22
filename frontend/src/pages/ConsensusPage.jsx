@@ -20,6 +20,27 @@ function fmtPeriod(s) {
 }
 
 const BRAND_OVERRIDES = {
+  // Amazon
+  'AMAZON.COM INC': 'Amazon',
+  'AMAZON COM INC': 'Amazon',
+  // Alphabet
+  'ALPHABET INC-CL A': 'Alphabet',
+  'ALPHABET INC-CL C': 'Alphabet',
+  // S&P 500 ETF
+  'SPDR S&P 500 ETF TRUST-US': 'SPY ETF',
+  'SS SPDR S&P 500 ETF TRUST-US': 'SPY ETF',
+  // Share-class / ADR edge cases
+  'DOORDASH INC - A': 'DoorDash',
+  'SPOTIFY TECHNOLOGY S A': 'Spotify',
+  'TAIWAN SEMICONDUCTOR-SP ADR': 'TSMC',
+  // Plain names that title-case fine but are worth pinning
+  'BROOKFIELD CORP': 'Brookfield',
+  'VISTRA CORP': 'Vistra',
+  'COUPANG INC': 'Coupang',
+  'BROADCOM INC': 'Broadcom',
+  'NVIDIA CORP': 'Nvidia',
+  'MICROSOFT CORP': 'Microsoft',
+  // Legacy abbreviation overrides
   'FINL': 'Finish Line',
   'HLDG': 'Holdings',
   'MTR': 'Motors',
@@ -31,16 +52,25 @@ function simplifyName(str) {
   if (!str) return '';
   const upper = str.toUpperCase().trim();
   if (BRAND_OVERRIDES[upper]) return BRAND_OVERRIDES[upper];
+  let name = str.trim();
+  // Strip share-class suffixes: -CL A/B/C
+  name = name.replace(/\s*-\s*CL\s+[A-C]\b/gi, '');
+  // Strip ADR suffixes: -SP ADR, - ADR
+  name = name.replace(/\s*-\s*SP\s+ADR\b/gi, '').replace(/\s*-\s*ADR\b/gi, '');
+  // Strip class-share " - A" / " - B" trailing patterns
+  name = name.replace(/\s+-\s+[A-C]\s*$/gi, '');
+  // Remove .COM from domain-style names (e.g. AMAZON.COM)
+  name = name.replace(/\.COM\b/gi, '');
   // Title-case while preserving known acronyms
-  let name = str.trim().replace(/\b(\w+)\b/g, (word) => {
+  name = name.replace(/\b(\w+)\b/g, (word) => {
     const up = word.toUpperCase();
     if (UPPERCASE_WORDS.has(up)) return up;
     return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
   });
-  // Strip only safe legal suffixes
+  // Strip safe legal suffixes
   name = name.replace(/\s+(Inc|Corp|Corporation|Ltd|LLC|PLC)\.?$/i, '').trim();
-  // Clean trailing punctuation
-  name = name.replace(/[,\.]+$/, '').trim();
+  // Clean trailing punctuation and whitespace
+  name = name.replace(/[,\.\-\s]+$/, '').trim();
   return name;
 }
 
