@@ -46,7 +46,7 @@ function simplifyName(str) {
 
 function displayName(item, tickerMap) {
   const entry = tickerMap?.[item.cusip];
-  if (entry?.name && entry.source === 'openfigi') return entry.name;
+  if (entry?.name) return simplifyName(entry.name);
   return simplifyName(item.issuer_name);
 }
 
