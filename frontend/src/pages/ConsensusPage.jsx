@@ -362,7 +362,10 @@ function HoldingsModule({ data, onStockClick, tickerMap, collapsed, onCollapseTo
                     <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
+                  <>
+                    <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
+                    <span className="text-gray-400 text-xs ml-1.5">{item.issuer_name}</span>
+                  </>
                 )}
               </div>
               <HolderBadges holders={item.holders} />
@@ -435,7 +438,10 @@ function BuyingModule({ data, onStockClick, tickerMap, collapsed, onCollapseTogg
                     <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
+                  <>
+                    <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
+                    <span className="text-gray-400 text-xs ml-1.5">{item.issuer_name}</span>
+                  </>
                 )}
               </div>
               <BuyerBadges buyers={item.buyers} />
@@ -508,7 +514,10 @@ function SellingModule({ data, onStockClick, tickerMap, collapsed, onCollapseTog
                     <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
+                  <>
+                    <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
+                    <span className="text-gray-400 text-xs ml-1.5">{item.issuer_name}</span>
+                  </>
                 )}
               </div>
               <SellerBadges sellers={item.sellers} />
@@ -576,7 +585,10 @@ function EmergingModule({ data, onStockClick, tickerMap, collapsed, onCollapseTo
                     <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
+                  <>
+                    <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
+                    <span className="text-gray-400 text-xs ml-1.5">{item.issuer_name}</span>
+                  </>
                 )}
               </div>
             </td>
@@ -649,7 +661,10 @@ function PersistentModule({ data, onStockClick, tickerMap, collapsed, onCollapse
                     <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
+                  <>
+                    <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
+                    <span className="text-gray-400 text-xs ml-1.5">{item.issuer_name}</span>
+                  </>
                 )}
               </div>
               <HolderBadges holders={item.holders} />
