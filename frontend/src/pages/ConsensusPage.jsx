@@ -26,13 +26,30 @@ const BRAND_OVERRIDES = {
   // Alphabet
   'ALPHABET INC-CL A': 'Alphabet',
   'ALPHABET INC-CL C': 'Alphabet',
+  // Meta
+  'META PLATFORMS INC-CLASS A': 'Meta',
+  'META PLATFORMS INC': 'Meta',
+  // AppLovin
+  'APPLOVIN CORP-CLASS A': 'AppLovin',
+  'APPLOVIN CORP': 'AppLovin',
+  // Berkshire Hathaway
+  'BERKSHIRE HATHAWAY INC-CL B': 'Berkshire Hathaway',
+  'BERKSHIRE HATHAWAY INC-CL A': 'Berkshire Hathaway',
+  // DoorDash
+  'DOORDASH INC - A': 'DoorDash',
+  'DOORDASH INC-CLASS A': 'DoorDash',
+  // Other class-share / ADR edge cases
+  'SPOTIFY TECHNOLOGY S A': 'Spotify',
+  'TAIWAN SEMICONDUCTOR-SP ADR': 'TSMC',
+  'UBER TECHNOLOGIES INC': 'Uber',
+  'AIRBNB INC-CLASS A': 'Airbnb',
+  'COINBASE GLOBAL INC-CLASS A': 'Coinbase',
+  'PINTEREST INC- CLASS A': 'Pinterest',
+  'SNAP INC-CLASS A': 'Snap',
+  'LYFT INC-CLASS A': 'Lyft',
   // S&P 500 ETF
   'SPDR S&P 500 ETF TRUST-US': 'SPY ETF',
   'SS SPDR S&P 500 ETF TRUST-US': 'SPY ETF',
-  // Share-class / ADR edge cases
-  'DOORDASH INC - A': 'DoorDash',
-  'SPOTIFY TECHNOLOGY S A': 'Spotify',
-  'TAIWAN SEMICONDUCTOR-SP ADR': 'TSMC',
   // Plain names that title-case fine but are worth pinning
   'BROOKFIELD CORP': 'Brookfield',
   'VISTRA CORP': 'Vistra',
@@ -53,12 +70,13 @@ function simplifyName(str) {
   const upper = str.toUpperCase().trim();
   if (BRAND_OVERRIDES[upper]) return BRAND_OVERRIDES[upper];
   let name = str.trim();
-  // Strip share-class suffixes: -CL A/B/C
+  // Strip share-class suffixes: -Class A/B/C, -CL A/B/C
+  name = name.replace(/\s*-\s*CLASS\s+[A-C]\b/gi, '');
   name = name.replace(/\s*-\s*CL\s+[A-C]\b/gi, '');
   // Strip ADR suffixes: -SP ADR, - ADR
   name = name.replace(/\s*-\s*SP\s+ADR\b/gi, '').replace(/\s*-\s*ADR\b/gi, '');
-  // Strip class-share " - A" / " - B" trailing patterns
-  name = name.replace(/\s+-\s+[A-C]\s*$/gi, '');
+  // Strip trailing standalone class letter: " - A" / "- A" at end of string
+  name = name.replace(/\s*-\s*[A-C]\s*$/gi, '');
   // Remove .COM from domain-style names (e.g. AMAZON.COM)
   name = name.replace(/\.COM\b/gi, '');
   // Title-case while preserving known acronyms
