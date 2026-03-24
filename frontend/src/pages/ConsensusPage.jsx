@@ -241,7 +241,7 @@ function SellerBadges({ sellers, maxVisible = 4 }) {
 
 function ModuleCard({ title, subtitle, children, fullWidth = false, collapsed = false, onCollapseToggle }) {
   return (
-    <div className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-5 ${fullWidth ? 'lg:col-span-2' : ''}`}>
+    <div className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-5 ${fullWidth ? 'lg:col-span-2' : ''} ${collapsed ? 'self-start' : ''}`}>
       <div className={`flex items-center justify-between ${!collapsed ? 'mb-4' : ''}`}>
         <div>
           <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
@@ -269,7 +269,7 @@ function ModuleCard({ title, subtitle, children, fullWidth = false, collapsed = 
 
 // ── ShowMoreTable — wraps a list with show more/less ────────────────────────
 
-function ShowMoreTable({ items, defaultRows = 10, renderRow, emptyMsg = 'No results' }) {
+function ShowMoreTable({ items, defaultRows = 5, renderRow, emptyMsg = 'No results' }) {
   const [expanded, setExpanded] = useState(false);
   if (!items || items.length === 0) {
     return <p className="text-xs text-gray-400 py-4 text-center">{emptyMsg}</p>;
@@ -362,7 +362,7 @@ function HoldingsModule({ data, onStockClick, tickerMap, collapsed, onCollapseTo
                     <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-medium">{displayName(item, tickerMap)}</span>
+                  <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
                 )}
               </div>
               <HolderBadges holders={item.holders} />
@@ -435,7 +435,7 @@ function BuyingModule({ data, onStockClick, tickerMap, collapsed, onCollapseTogg
                     <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-medium">{displayName(item, tickerMap)}</span>
+                  <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
                 )}
               </div>
               <BuyerBadges buyers={item.buyers} />
@@ -508,7 +508,7 @@ function SellingModule({ data, onStockClick, tickerMap, collapsed, onCollapseTog
                     <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-medium">{displayName(item, tickerMap)}</span>
+                  <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
                 )}
               </div>
               <SellerBadges sellers={item.sellers} />
@@ -576,7 +576,7 @@ function EmergingModule({ data, onStockClick, tickerMap, collapsed, onCollapseTo
                     <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-medium">{displayName(item, tickerMap)}</span>
+                  <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
                 )}
               </div>
             </td>
@@ -649,7 +649,7 @@ function PersistentModule({ data, onStockClick, tickerMap, collapsed, onCollapse
                     <span className="text-gray-400 text-xs ml-1.5">{displayName(item, tickerMap)}</span>
                   </>
                 ) : (
-                  <span className="text-gray-900 font-medium">{displayName(item, tickerMap)}</span>
+                  <span className="text-gray-900 font-semibold text-sm">{displayName(item, tickerMap)}</span>
                 )}
               </div>
               <HolderBadges holders={item.holders} />
