@@ -1,21 +1,13 @@
-# DEPRECATED: This file has been moved to backend/app/data/cusip_lookup.py (core logic)
-# and backend/scripts/resolve_cusips.py (entry point). Kept for reference.
-# Use the new package structure instead.
-# See backend/ directory for the current implementation.
-
 """
-CUSIP → ticker resolver using OpenFIGI API + name-based fallback.
+cusip_lookup.py — CUSIP → ticker resolver using OpenFIGI API + name-based fallback.
 
-Usage:
-    python3 cusip_lookup.py            # resolve only CUSIPs not yet cached
-    python3 cusip_lookup.py --all      # re-resolve everything (overwrites)
-    python3 cusip_lookup.py --report   # show current coverage stats, no fetching
+Core resolution logic from cusip_lookup.py (root).
+CLI entry point lives in backend/scripts/resolve_cusips.py.
 
 Set OPENFIGI_API_KEY in .env for 250 req/min (vs 25 req/min without key).
 Without a key, ~4 700 CUSIPs takes ~20 min. With a key, ~2 min.
 """
 
-import argparse
 import json
 import os
 import re
@@ -29,7 +21,7 @@ from sqlalchemy import text
 
 load_dotenv()
 
-from db import engine
+from backend.app.core.database import engine
 
 OPENFIGI_URL     = "https://api.openfigi.com/v3/mapping"
 OPENFIGI_API_KEY = os.environ.get("OPENFIGI_API_KEY", "")
@@ -331,27 +323,3 @@ def print_coverage_report() -> None:
     for source, n in by_source:
         pct = n / total_cusips * 100
         print(f"    {source or 'NULL':<15}  {n:>6}  ({pct:.1f}%)")
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Resolve holdings CUSIPs to tickers via OpenFIGI + name fallback"
-    )
-    parser.add_argument(
-        "--all", action="store_true",
-        help="Re-resolve all CUSIPs (default: only new ones not yet in the table)",
-    )
-    parser.add_argument(
-        "--report", action="store_true",
-        help="Show current coverage stats without making any API calls",
-    )
-    args = parser.parse_args()
-
-    if args.report:
-        print_coverage_report()
-    else:
-        build_cusip_ticker_map(resolve_all=args.all)

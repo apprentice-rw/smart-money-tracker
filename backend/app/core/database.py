@@ -1,9 +1,5 @@
-# DEPRECATED: This file has been moved to backend/app/core/database.py
-# Kept for reference. Use the new package structure instead.
-# See backend/ directory for the current implementation.
-
 """
-db.py — SQLAlchemy engine factory.
+database.py — SQLAlchemy engine factory.
 
 Reads DATABASE_URL from the environment (via .env for local dev).
 Supports both SQLite (local) and PostgreSQL (production on Railway).

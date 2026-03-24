@@ -1,13 +1,8 @@
-# DEPRECATED: This file has been moved to backend/app/data/etl.py (core logic)
-# and backend/scripts/setup_db.py (entry point). Kept for reference.
-# Use the new package structure instead.
-# See backend/ directory for the current implementation.
-
 """
-Phase 2 — Database Schema Design + Setup
-Creates the database (SQLite or PostgreSQL), imports all fetch/parse logic
-from phase1_validate, populates the last 8 quarters of 13F holdings for each
-institution, and precomputes quarter-over-quarter position_changes.
+etl.py — Database schema DDL and ETL pipeline.
+
+Core logic from phase2_setup_db.py without the entry-point main().
+The entry point lives in backend/scripts/setup_db.py.
 """
 
 import os
@@ -17,10 +12,10 @@ from pathlib import Path
 from sqlalchemy.engine import Connection
 from sqlalchemy.sql import text
 
-from db import IS_SQLITE, engine
+from backend.app.core.database import IS_SQLITE, engine
 
-# Reuse all fetch/parse logic from Phase 1 — no duplication
-from phase1_validate import (
+# Reuse all fetch/parse logic from sec_edgar — no duplication
+from backend.app.data.sec_edgar import (
     INSTITUTIONS,
     compare_quarters,
     fetch_xml,
@@ -98,7 +93,7 @@ SCHEMA_STATEMENTS = [
     )
     """,
 
-    # cusip_ticker_map — permanent CUSIP→ticker cache (populated by cusip_lookup.py)
+    # cusip_ticker_map — permanent CUSIP→ticker cache (populated by resolve_cusips.py)
     """
     CREATE TABLE IF NOT EXISTS cusip_ticker_map (
         cusip        TEXT PRIMARY KEY,
@@ -535,35 +530,3 @@ def print_verification(conn: Connection) -> None:
 
     print(f"\n  Database: {engine.url}")
     print()
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-def main() -> None:
-    print(f"Smart Money Tracker — Phase 2 Database Setup")
-    print(f"Target: {engine.url}\n")
-
-    wipe_db()
-
-    with engine.connect() as conn:
-        apply_schema(conn)
-        run_etl(conn)
-        print(f"\n{'=' * 55}")
-        print("  ETL complete — running verification ...")
-        print_verification(conn)
-
-    # Resolve any new CUSIPs that aren't yet in the ticker cache
-    print(f"\n{'=' * 55}")
-    print("  Resolving new CUSIPs via OpenFIGI ...")
-    print(f"{'=' * 55}")
-    try:
-        from cusip_lookup import build_cusip_ticker_map
-        build_cusip_ticker_map(resolve_all=False)
-    except Exception as exc:
-        print(f"  WARNING: CUSIP lookup failed — run cusip_lookup.py manually. ({exc})")
-
-
-if __name__ == "__main__":
-    main()

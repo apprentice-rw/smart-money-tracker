@@ -1,3 +1,8 @@
+# DEPRECATED: This file has been moved to backend/app/main.py (app factory) and
+# backend/app/api/routes/ (endpoints). Kept for reference.
+# Use the new package structure instead.
+# See backend/ directory for the current implementation.
+
 """
 Phase 3 — FastAPI Backend
 Serves smart_money.db (built by phase2_setup_db.py) via REST endpoints.
