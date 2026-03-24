@@ -57,13 +57,19 @@ const BRAND_OVERRIDES = {
   'BROADCOM INC': 'Broadcom',
   'NVIDIA CORP': 'Nvidia',
   'MICROSOFT CORP': 'Microsoft',
+  // Ticker-as-name overrides
+  'ITT INC': 'ITT',
+  'CRH PLC': 'CRH',
+  'ASML HOLDING NV': 'ASML',
+  'ASML HOLDING N V': 'ASML',
+  'ASML HOLDING': 'ASML',
   // Legacy abbreviation overrides
   'FINL': 'Finish Line',
   'HLDG': 'Holdings',
   'MTR': 'Motors',
 };
 
-const UPPERCASE_WORDS = new Set(['AI', 'ETF', 'LP', 'LLP', 'USA', 'US', 'UK', 'EU', 'IPO', 'REIT', 'S&P', 'IT', 'TV', 'HR', 'PR']);
+const UPPERCASE_WORDS = new Set(['AI', 'ETF', 'LP', 'LLP', 'USA', 'US', 'UK', 'EU', 'IPO', 'REIT', 'S&P', 'IT', 'TV', 'HR', 'PR', 'ITT']);
 
 function simplifyName(str) {
   if (!str) return '';
@@ -233,21 +239,30 @@ function SellerBadges({ sellers, maxVisible = 4 }) {
 
 // ── ModuleCard wrapper ───────────────────────────────────────────────────────
 
-function ModuleCard({ title, subtitle, count, children, fullWidth = false }) {
+function ModuleCard({ title, subtitle, children, fullWidth = false, collapsed = false, onCollapseToggle }) {
   return (
     <div className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-5 ${fullWidth ? 'lg:col-span-2' : ''}`}>
-      <div className="flex items-center justify-between mb-4">
+      <div className={`flex items-center justify-between ${!collapsed ? 'mb-4' : ''}`}>
         <div>
           <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
-          {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+          {!collapsed && subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
         </div>
-        {count != null && (
-          <span className="bg-gray-100 text-gray-500 text-xs font-medium rounded-full px-2.5 py-1">
-            {count}
-          </span>
+        {onCollapseToggle && (
+          <button
+            onClick={onCollapseToggle}
+            title={collapsed ? 'Expand' : 'Collapse'}
+            className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+          >
+            <svg
+              className={`w-4 h-4 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+            </svg>
+          </button>
         )}
       </div>
-      {children}
+      {!collapsed && children}
     </div>
   );
 }
@@ -298,7 +313,7 @@ const HOLDINGS_SORT_OPTS = [
   { key: 'avg_weight',   label: 'Avg Weight' },
 ];
 
-function HoldingsModule({ data, onStockClick, tickerMap }) {
+function HoldingsModule({ data, onStockClick, tickerMap, collapsed, onCollapseToggle }) {
   const [sortKey, setSortKey] = useState('holder_count');
   const [sortDir, setSortDir] = useState('desc');
 
@@ -320,7 +335,8 @@ function HoldingsModule({ data, onStockClick, tickerMap }) {
     <ModuleCard
       title="Top Consensus Holdings"
       subtitle="Stocks held by the most institutions"
-      count={data.results?.length}
+      collapsed={collapsed}
+      onCollapseToggle={onCollapseToggle}
     >
       <SortPills
         options={HOLDINGS_SORT_OPTS}
@@ -370,7 +386,7 @@ const BUYING_SORT_OPTS = [
   { key: 'avg_weight',        label: 'Avg Weight' },
 ];
 
-function BuyingModule({ data, onStockClick, tickerMap }) {
+function BuyingModule({ data, onStockClick, tickerMap, collapsed, onCollapseToggle }) {
   const [sortKey, setSortKey] = useState('buyer_count');
   const [sortDir, setSortDir] = useState('desc');
 
@@ -387,12 +403,13 @@ function BuyingModule({ data, onStockClick, tickerMap }) {
     });
   }, [data, sortKey, sortDir]);
 
-  if (!data) return <ModuleCard title="Consensus Buying" subtitle="Loading..."><ModuleSpinner /></ModuleCard>;
+  if (!data) return <ModuleCard title="Consensus Buying" subtitle="Loading..." onCollapseToggle={onCollapseToggle} collapsed={collapsed}><ModuleSpinner /></ModuleCard>;
   return (
     <ModuleCard
       title="Consensus Buying"
       subtitle={data.prev_period ? `New/increased vs ${fmtPeriod(data.prev_period)}` : 'New & increased positions'}
-      count={data.results?.length}
+      collapsed={collapsed}
+      onCollapseToggle={onCollapseToggle}
     >
       <SortPills
         options={BUYING_SORT_OPTS}
@@ -442,7 +459,7 @@ const SELLING_SORT_OPTS = [
   { key: 'avg_weight',        label: 'Avg Weight' },
 ];
 
-function SellingModule({ data, onStockClick, tickerMap }) {
+function SellingModule({ data, onStockClick, tickerMap, collapsed, onCollapseToggle }) {
   const [sortKey, setSortKey] = useState('seller_count');
   const [sortDir, setSortDir] = useState('desc');
 
@@ -459,12 +476,13 @@ function SellingModule({ data, onStockClick, tickerMap }) {
     });
   }, [data, sortKey, sortDir]);
 
-  if (!data) return <ModuleCard title="Consensus Selling" subtitle="Loading..."><ModuleSpinner /></ModuleCard>;
+  if (!data) return <ModuleCard title="Consensus Selling" subtitle="Loading..." onCollapseToggle={onCollapseToggle} collapsed={collapsed}><ModuleSpinner /></ModuleCard>;
   return (
     <ModuleCard
       title="Consensus Selling"
       subtitle={data.prev_period ? `Closed/decreased vs ${fmtPeriod(data.prev_period)}` : 'Closed & decreased positions'}
-      count={data.results?.length}
+      collapsed={collapsed}
+      onCollapseToggle={onCollapseToggle}
     >
       <SortPills
         options={SELLING_SORT_OPTS}
@@ -513,7 +531,7 @@ const EMERGING_SORT_OPTS = [
   { key: 'total_value',  label: 'Total Value' },
 ];
 
-function EmergingModule({ data, onStockClick, tickerMap }) {
+function EmergingModule({ data, onStockClick, tickerMap, collapsed, onCollapseToggle }) {
   const [sortKey, setSortKey] = useState('holder_delta');
   const [sortDir, setSortDir] = useState('desc');
 
@@ -526,12 +544,13 @@ function EmergingModule({ data, onStockClick, tickerMap }) {
     });
   }, [data, sortKey, sortDir]);
 
-  if (!data) return <ModuleCard title="Emerging Consensus" subtitle="Loading..."><ModuleSpinner /></ModuleCard>;
+  if (!data) return <ModuleCard title="Emerging Consensus" subtitle="Loading..." onCollapseToggle={onCollapseToggle} collapsed={collapsed}><ModuleSpinner /></ModuleCard>;
   return (
     <ModuleCard
       title="Emerging Consensus"
       subtitle={data.prev_period ? `Holder count growing vs ${fmtPeriod(data.prev_period)}` : 'Growing institutional interest'}
-      count={data.results?.length}
+      collapsed={collapsed}
+      onCollapseToggle={onCollapseToggle}
     >
       <SortPills
         options={EMERGING_SORT_OPTS}
@@ -580,7 +599,7 @@ const PERSISTENT_SORT_OPTS = [
   { key: 'latest_total_value',      label: 'Total Value' },
 ];
 
-function PersistentModule({ data, onStockClick, tickerMap }) {
+function PersistentModule({ data, onStockClick, tickerMap, collapsed, onCollapseToggle }) {
   const [sortKey, setSortKey] = useState('persistent_holder_count');
   const [sortDir, setSortDir] = useState('desc');
 
@@ -594,7 +613,7 @@ function PersistentModule({ data, onStockClick, tickerMap }) {
   }, [data, sortKey, sortDir]);
 
   if (!data) return (
-    <ModuleCard title="Persistent Holdings" subtitle="Loading..." fullWidth>
+    <ModuleCard title="Persistent Holdings" subtitle="Loading..." fullWidth onCollapseToggle={onCollapseToggle} collapsed={collapsed}>
       <ModuleSpinner />
     </ModuleCard>
   );
@@ -602,8 +621,9 @@ function PersistentModule({ data, onStockClick, tickerMap }) {
     <ModuleCard
       title="Persistent Holdings"
       subtitle={`Held for ${data.min_quarters}+ quarters of ${data.total_quarters_available} available`}
-      count={data.results?.length}
       fullWidth
+      collapsed={collapsed}
+      onCollapseToggle={onCollapseToggle}
     >
       <SortPills
         options={PERSISTENT_SORT_OPTS}
@@ -726,6 +746,13 @@ export default function ConsensusPage({ tickerMap: tickerMapProp, onStockClick: 
   const [persistentData, setPersistentData] = useState(null);
   const [loading,        setLoading]        = useState(false);
   const [moduleErrors,   setModuleErrors]   = useState({});
+  const [collapsedModules, setCollapsedModules] = useState({});
+
+  const MODULE_IDS = ['holdings', 'buying', 'selling', 'emerging', 'persistent'];
+  function toggleModule(id) { setCollapsedModules(prev => ({ ...prev, [id]: !prev[id] })); }
+  function collapseAllModules() { setCollapsedModules(Object.fromEntries(MODULE_IDS.map(id => [id, true]))); }
+  function expandAllModules() { setCollapsedModules({}); }
+  const allModulesCollapsed = MODULE_IDS.every(id => collapsedModules[id]);
 
   // Load quarter list on mount
   useEffect(() => {
@@ -798,11 +825,21 @@ export default function ConsensusPage({ tickerMap: tickerMapProp, onStockClick: 
               </p>
             )}
           </div>
-          <QuarterSelector
-            quarters={quarters}
-            selected={selectedQ}
-            onSelect={setSelectedQ}
-          />
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={allModulesCollapsed ? expandAllModules : collapseAllModules}
+              className="text-xs text-gray-400 hover:text-gray-700
+                         border border-gray-200 hover:border-gray-300 rounded-lg
+                         px-3 py-1.5 transition-colors bg-white shadow-sm"
+            >
+              {allModulesCollapsed ? 'Expand All' : 'Collapse All'}
+            </button>
+            <QuarterSelector
+              quarters={quarters}
+              selected={selectedQ}
+              onSelect={setSelectedQ}
+            />
+          </div>
         </div>
       </div>
 
@@ -820,35 +857,35 @@ export default function ConsensusPage({ tickerMap: tickerMapProp, onStockClick: 
             {moduleErrors.holdings ? (
               <ModuleError title="Top Consensus Holdings" message={moduleErrors.holdings} />
             ) : (
-              <HoldingsModule data={holdingsData} onStockClick={handleStockClick} tickerMap={tickerMap} />
+              <HoldingsModule data={holdingsData} onStockClick={handleStockClick} tickerMap={tickerMap} collapsed={!!collapsedModules.holdings} onCollapseToggle={() => toggleModule('holdings')} />
             )}
 
             {/* Module 2: Buying */}
             {moduleErrors.buying ? (
               <ModuleError title="Consensus Buying" message={moduleErrors.buying} />
             ) : (
-              <BuyingModule data={buyingData} onStockClick={handleStockClick} tickerMap={tickerMap} />
+              <BuyingModule data={buyingData} onStockClick={handleStockClick} tickerMap={tickerMap} collapsed={!!collapsedModules.buying} onCollapseToggle={() => toggleModule('buying')} />
             )}
 
             {/* Module 3: Selling */}
             {moduleErrors.selling ? (
               <ModuleError title="Consensus Selling" message={moduleErrors.selling} />
             ) : (
-              <SellingModule data={sellingData} onStockClick={handleStockClick} tickerMap={tickerMap} />
+              <SellingModule data={sellingData} onStockClick={handleStockClick} tickerMap={tickerMap} collapsed={!!collapsedModules.selling} onCollapseToggle={() => toggleModule('selling')} />
             )}
 
             {/* Module 4: Emerging */}
             {moduleErrors.emerging ? (
               <ModuleError title="Emerging Consensus" message={moduleErrors.emerging} />
             ) : (
-              <EmergingModule data={emergingData} onStockClick={handleStockClick} tickerMap={tickerMap} />
+              <EmergingModule data={emergingData} onStockClick={handleStockClick} tickerMap={tickerMap} collapsed={!!collapsedModules.emerging} onCollapseToggle={() => toggleModule('emerging')} />
             )}
 
             {/* Module 5: Persistent (full width) */}
             {moduleErrors.persistent ? (
               <ModuleError title="Persistent Holdings" message={moduleErrors.persistent} fullWidth />
             ) : (
-              <PersistentModule data={persistentData} onStockClick={handleStockClick} tickerMap={tickerMap} />
+              <PersistentModule data={persistentData} onStockClick={handleStockClick} tickerMap={tickerMap} collapsed={!!collapsedModules.persistent} onCollapseToggle={() => toggleModule('persistent')} />
             )}
           </div>
         )}
