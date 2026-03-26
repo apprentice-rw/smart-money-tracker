@@ -104,6 +104,39 @@ SCHEMA_STATEMENTS = [
     )
     """,
 
+    # price_history — daily price bars, provider-agnostic
+    """
+    CREATE TABLE IF NOT EXISTS price_history (
+        ticker      TEXT    NOT NULL,
+        date        TEXT    NOT NULL,
+        close       REAL    NOT NULL,
+        adj_close   REAL,
+        volume      BIGINT,
+        source      TEXT    NOT NULL DEFAULT 'yahoo',
+        PRIMARY KEY (ticker, date)
+    )
+    """,
+
+    # estimated_cost_basis — precomputed per-institution rolling Average Cost
+    f"""
+    CREATE TABLE IF NOT EXISTS estimated_cost_basis (
+        id                  {_PK},
+        institution_id      INTEGER NOT NULL REFERENCES institutions(id),
+        cusip               TEXT    NOT NULL,
+        period              TEXT    NOT NULL,
+        ticker              TEXT,
+        issuer_name         TEXT,
+        shares              BIGINT  NOT NULL DEFAULT 0,
+        avg_cost_per_share  REAL,
+        total_cost_basis    REAL,
+        quarter_buy_price   REAL,
+        change_type         TEXT,
+        price_source        TEXT,
+        computed_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (institution_id, cusip, period)
+    )
+    """,
+
     # indexes
     "CREATE INDEX IF NOT EXISTS idx_holdings_cusip    ON holdings (cusip)",
     "CREATE INDEX IF NOT EXISTS idx_holdings_filing   ON holdings (filing_id)",
@@ -114,6 +147,9 @@ SCHEMA_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_changes_cusip     ON position_changes (cusip)",
     "CREATE INDEX IF NOT EXISTS idx_changes_curr      ON position_changes (curr_filing_id)",
     "CREATE INDEX IF NOT EXISTS idx_changes_prev      ON position_changes (prev_filing_id)",
+    "CREATE INDEX IF NOT EXISTS idx_price_history_ticker ON price_history (ticker)",
+    "CREATE INDEX IF NOT EXISTS idx_ecb_inst_period ON estimated_cost_basis (institution_id, period)",
+    "CREATE INDEX IF NOT EXISTS idx_ecb_cusip        ON estimated_cost_basis (cusip)",
 ]
 
 
@@ -141,8 +177,9 @@ def wipe_db() -> None:
             db_path.unlink()
     else:
         with engine.connect() as conn:
-            for tbl in ("position_changes", "holdings", "filings", "institutions",
-                        "cusip_ticker_map"):
+            for tbl in ("estimated_cost_basis", "position_changes", "holdings",
+                        "filings", "institutions", "cusip_ticker_map",
+                        "price_history"):
                 conn.execute(text(f"DROP TABLE IF EXISTS {tbl} CASCADE"))
             conn.commit()
         print("  Dropped all PostgreSQL tables for clean rebuild.")
