@@ -27,6 +27,9 @@ env/
 # Claude Code session files
 .claude/
 
+# MCP config (contains project refs)
+.mcp.json
+
 # macOS
 .DS_Store
 
