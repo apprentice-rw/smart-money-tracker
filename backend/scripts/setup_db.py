@@ -25,7 +25,10 @@ def main() -> None:
 
     with engine.connect() as conn:
         apply_schema(conn)
-        run_etl(conn)
+
+    run_etl()
+
+    with engine.connect() as conn:
         print(f"\n{'=' * 55}")
         print("  ETL complete — running verification ...")
         print_verification(conn)

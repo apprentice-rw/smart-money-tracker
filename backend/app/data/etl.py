@@ -351,80 +351,87 @@ def upsert_position_changes(
 # Main ETL
 # ---------------------------------------------------------------------------
 
-def run_etl(conn: Connection) -> None:
+def run_etl(conn: Connection = None) -> None:
+    """Run the full ETL pipeline.
+
+    Accepts an optional *conn* for backward-compatibility, but opens a fresh
+    engine connection per institution so long-running jobs don't time out on
+    managed databases (e.g. Supabase session-pooler).
+    """
     for inst_name, cik in INSTITUTIONS.items():
         print(f"\n{'─' * 55}")
         print(f"  Processing: {inst_name}  (CIK {cik})")
         print(f"{'─' * 55}")
 
-        inst_id = upsert_institution(conn, inst_name, cik)
-        conn.commit()
+        with engine.connect() as inst_conn:
+            inst_id = upsert_institution(inst_conn, inst_name, cik)
+            inst_conn.commit()
 
-        print(f"  Fetching last {NUM_QUARTERS} 13F-HR filings ...")
-        try:
-            filings = get_recent_13f_filings(cik, n=NUM_QUARTERS)
-        except Exception as exc:
-            print(f"  ERROR: {exc}")
-            continue
-
-        if not filings:
-            print("  No filings found — skipping.")
-            continue
-
-        print(f"  Found {len(filings)} filing(s):")
-        for f in filings:
-            print(f"    {f['period_of_report']}  (filed {f['filing_date']})")
-
-        filing_records: list[dict] = []
-
-        for filing in reversed(filings):
-            period = filing["period_of_report"]
-            acc = filing["accession_number"]
-
-            print(f"\n  [{period}]  Fetching holdings ...")
+            print(f"  Fetching last {NUM_QUARTERS} 13F-HR filings ...")
             try:
-                xml_url = get_infotable_xml_url(cik, acc)
-                xml_text = fetch_xml(xml_url)
-                raw = parse_holdings(xml_text, period)
+                filings = get_recent_13f_filings(cik, n=NUM_QUARTERS)
             except Exception as exc:
-                print(f"    ERROR fetching/parsing: {exc}")
+                print(f"  ERROR: {exc}")
                 continue
 
-            aggregated = aggregate_holdings(raw)
-            print(
-                f"    Raw rows: {len(raw):>4}  →  "
-                f"Unique CUSIPs: {len(aggregated):>4}  "
-                f"(collapsed {len(raw) - len(aggregated)} duplicates)"
-            )
+            if not filings:
+                print("  No filings found — skipping.")
+                continue
 
-            filing_id = upsert_filing(conn, inst_id, filing)
-            n_written = upsert_holdings(conn, filing_id, aggregated)
-            conn.commit()
-            print(f"    Stored {n_written} holdings rows  (filing_id={filing_id})")
+            print(f"  Found {len(filings)} filing(s):")
+            for f in filings:
+                print(f"    {f['period_of_report']}  (filed {f['filing_date']})")
 
-            filing_records.append({
-                "meta":       filing,
-                "filing_id":  filing_id,
-                "aggregated": aggregated,
-            })
+            filing_records: list[dict] = []
 
-        for i in range(len(filing_records) - 1):
-            prev_rec = filing_records[i]
-            curr_rec = filing_records[i + 1]
-            prev_period = prev_rec["meta"]["period_of_report"]
-            curr_period = curr_rec["meta"]["period_of_report"]
+            for filing in reversed(filings):
+                period = filing["period_of_report"]
+                acc = filing["accession_number"]
 
-            print(f"\n  Computing changes: {prev_period} → {curr_period} ...")
-            n_changes = upsert_position_changes(
-                conn,
-                inst_id,
-                prev_rec["filing_id"],
-                curr_rec["filing_id"],
-                prev_rec["aggregated"],
-                curr_rec["aggregated"],
-            )
-            conn.commit()
-            print(f"    Stored {n_changes} position_change rows")
+                print(f"\n  [{period}]  Fetching holdings ...")
+                try:
+                    xml_url = get_infotable_xml_url(cik, acc)
+                    xml_text = fetch_xml(xml_url)
+                    raw = parse_holdings(xml_text, period)
+                except Exception as exc:
+                    print(f"    ERROR fetching/parsing: {exc}")
+                    continue
+
+                aggregated = aggregate_holdings(raw)
+                print(
+                    f"    Raw rows: {len(raw):>4}  →  "
+                    f"Unique CUSIPs: {len(aggregated):>4}  "
+                    f"(collapsed {len(raw) - len(aggregated)} duplicates)"
+                )
+
+                filing_id = upsert_filing(inst_conn, inst_id, filing)
+                n_written = upsert_holdings(inst_conn, filing_id, aggregated)
+                inst_conn.commit()
+                print(f"    Stored {n_written} holdings rows  (filing_id={filing_id})")
+
+                filing_records.append({
+                    "meta":       filing,
+                    "filing_id":  filing_id,
+                    "aggregated": aggregated,
+                })
+
+            for i in range(len(filing_records) - 1):
+                prev_rec = filing_records[i]
+                curr_rec = filing_records[i + 1]
+                prev_period = prev_rec["meta"]["period_of_report"]
+                curr_period = curr_rec["meta"]["period_of_report"]
+
+                print(f"\n  Computing changes: {prev_period} → {curr_period} ...")
+                n_changes = upsert_position_changes(
+                    inst_conn,
+                    inst_id,
+                    prev_rec["filing_id"],
+                    curr_rec["filing_id"],
+                    prev_rec["aggregated"],
+                    curr_rec["aggregated"],
+                )
+                inst_conn.commit()
+                print(f"    Stored {n_changes} position_change rows")
 
 
 # ---------------------------------------------------------------------------

@@ -147,7 +147,6 @@ export default function InstitutionCard({ institution, onAumLoaded, onDragHandle
               sortKey={sortKey}
               sortDir={sortDir}
               onChange={(key, dir) => { setSortKey(key); setSortDir(dir); }}
-              bordered={true}
             />
           </div>
         )}
