@@ -1,8 +1,5 @@
 """
 consensus.py — Shared helpers for consensus endpoints.
-
-Extracted from phase3_api.py to eliminate duplication across the 3 consensus
-aggregation endpoints (buying, selling, emerging) that share identical patterns.
 """
 
 from typing import Optional
@@ -40,6 +37,21 @@ def _consensus_prev_period(conn: Connection, period: str) -> Optional[str]:
         {"p": period},
     ).fetchone()
     return row[0] if row else None
+
+
+def _inst_totals(conn: Connection, period: str) -> dict:
+    """Return {institution_id: total_portfolio_value} for a given period."""
+    rows = conn.execute(
+        text("""
+        SELECT f.institution_id, SUM(h.value) AS total_value
+        FROM holdings h
+        JOIN filings f ON f.id = h.filing_id
+        WHERE f.period_of_report = :period
+        GROUP BY f.institution_id
+        """),
+        {"period": period},
+    ).fetchall()
+    return {r[0]: r[1] for r in rows}
 
 
 def _consensus_ticker_map(conn: Connection, cusips: list) -> dict:

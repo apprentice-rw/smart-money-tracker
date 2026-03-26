@@ -11,6 +11,7 @@ from backend.app.services.consensus import (
     _consensus_period,
     _consensus_prev_period,
     _consensus_ticker_map,
+    _inst_totals,
 )
 
 router = APIRouter()
@@ -46,18 +47,7 @@ def consensus_holdings(
 ) -> dict:
     """Aggregate holdings across institutions for a given quarter."""
     resolved = _consensus_period(conn, period)
-
-    inst_totals_rows = conn.execute(
-        text("""
-        SELECT f.institution_id, SUM(h.value) AS total_value
-        FROM holdings h
-        JOIN filings f ON f.id = h.filing_id
-        WHERE f.period_of_report = :period
-        GROUP BY f.institution_id
-        """),
-        {"period": resolved},
-    ).fetchall()
-    inst_totals = {r[0]: r[1] for r in inst_totals_rows}
+    inst_totals = _inst_totals(conn, resolved)
 
     total_institutions = conn.execute(
         text("SELECT COUNT(DISTINCT institution_id) FROM filings WHERE period_of_report = :p"),
@@ -143,18 +133,7 @@ def consensus_buying(
     """Stocks being bought (new or increased) by multiple institutions."""
     resolved = _consensus_period(conn, period)
     prev = _consensus_prev_period(conn, resolved)
-
-    inst_totals_rows = conn.execute(
-        text("""
-        SELECT f.institution_id, SUM(h.value) AS total_value
-        FROM holdings h
-        JOIN filings f ON f.id = h.filing_id
-        WHERE f.period_of_report = :period
-        GROUP BY f.institution_id
-        """),
-        {"period": resolved},
-    ).fetchall()
-    inst_totals = {r[0]: r[1] for r in inst_totals_rows}
+    inst_totals = _inst_totals(conn, resolved)
 
     rows = conn.execute(
         text("""
@@ -239,18 +218,7 @@ def consensus_selling(
     """Stocks being sold (closed or decreased) by multiple institutions."""
     resolved = _consensus_period(conn, period)
     prev = _consensus_prev_period(conn, resolved)
-
-    inst_totals_rows = conn.execute(
-        text("""
-        SELECT f.institution_id, SUM(h.value) AS total_value
-        FROM holdings h
-        JOIN filings f ON f.id = h.filing_id
-        WHERE f.period_of_report = :period
-        GROUP BY f.institution_id
-        """),
-        {"period": resolved},
-    ).fetchall()
-    inst_totals = {r[0]: r[1] for r in inst_totals_rows}
+    inst_totals = _inst_totals(conn, resolved)
 
     rows = conn.execute(
         text("""
@@ -431,18 +399,7 @@ def consensus_persistent(
         """),
     ).fetchall()
 
-    # Institution total portfolio values for latest period
-    inst_totals_rows = conn.execute(
-        text("""
-        SELECT f.institution_id, SUM(h.value) AS total_value
-        FROM holdings h
-        JOIN filings f ON f.id = h.filing_id
-        WHERE f.period_of_report = :latest
-        GROUP BY f.institution_id
-        """),
-        {"latest": latest},
-    ).fetchall()
-    inst_totals = {r[0]: r[1] for r in inst_totals_rows}
+    inst_totals = _inst_totals(conn, latest)
 
     # Group by cusip
     agg: dict = {}
