@@ -79,10 +79,16 @@ def get_stock_history(
             CAST(h.value AS REAL) / NULLIF(
                 (SELECT SUM(h2.value) FROM holdings h2 WHERE h2.filing_id = f.id),
                 0
-            ) AS portfolio_weight
+            ) AS portfolio_weight,
+            ecb.avg_cost_per_share  AS estimated_avg_cost,
+            ecb.total_cost_basis    AS estimated_total_cost
         FROM holdings h
-        JOIN filings      f ON f.id = h.filing_id
-        JOIN institutions i ON i.id = f.institution_id
+        JOIN filings      f   ON f.id = h.filing_id
+        JOIN institutions i   ON i.id = f.institution_id
+        LEFT JOIN estimated_cost_basis ecb
+               ON ecb.institution_id = i.id
+              AND ecb.cusip           = h.cusip
+              AND ecb.period          = f.period_of_report
         WHERE h.cusip = :cusip
         ORDER BY f.period_of_report ASC, i.id ASC
         """),

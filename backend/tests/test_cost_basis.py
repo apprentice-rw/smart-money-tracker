@@ -420,3 +420,49 @@ def test_cost_basis_endpoint_filter_by_cusip(conn, client):
     assert resp.status_code == 200
     rows = resp.json()["cost_basis"]
     assert all(r["cusip"] == "APICUSIP" for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# API: GET /stock/{cusip}/history — extended with cost basis fields
+# ---------------------------------------------------------------------------
+
+def test_stock_history_includes_cost_basis_fields(conn, client):
+    """estimated_avg_cost and estimated_total_cost appear in history rows."""
+    _seed_api_scenario(conn)  # idempotent — seeds APICUSIP / APITK if not already present
+
+    resp = client.get("/stock/APICUSIP/history")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "history" in data
+    history = data["history"]
+    assert len(history) >= 1
+
+    row = history[0]
+    assert "estimated_avg_cost" in row,   "missing estimated_avg_cost field"
+    assert "estimated_total_cost" in row, "missing estimated_total_cost field"
+
+
+def test_stock_history_cost_basis_value_correct(conn, client):
+    """For a seeded new position, avg_cost matches the quarter proxy price."""
+    inst_id = _seed_api_scenario(conn)  # idempotent
+
+    resp = client.get("/stock/APICUSIP/history")
+    data = resp.json()
+
+    matching = [r for r in data["history"] if r["institution_id"] == inst_id]
+    assert len(matching) >= 1
+    row = matching[0]
+    assert row["estimated_avg_cost"] is not None
+    assert abs(row["estimated_avg_cost"] - 150.0) < 0.01
+
+
+def test_stock_history_cost_basis_field_always_present(conn, client):
+    """estimated_avg_cost field is present on every history row (may be null)."""
+    _seed_api_scenario(conn)  # idempotent
+
+    resp = client.get("/stock/APICUSIP/history")
+    data = resp.json()
+    for row in data["history"]:
+        assert "estimated_avg_cost" in row
+        assert "estimated_total_cost" in row
