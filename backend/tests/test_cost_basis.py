@@ -217,21 +217,26 @@ def test_get_quarter_price_excludes_prior_quarter_bars(conn):
     )
 
 
-def test_get_quarter_price_uses_adj_close_for_vwac(conn):
-    """VWAC must be computed from adj_close (not raw close) when they differ."""
+def test_get_quarter_price_uses_close_not_adj_close(conn):
+    """VWAC must be computed from unadjusted close (not adj_close) when they differ.
+
+    Pairing adj_close with raw volume would be inconsistent around splits —
+    V1 uses close × volume so both inputs are on the same unadjusted basis.
+    """
     from backend.app.data.cost_basis import get_quarter_price
-    # Simulate a stock where close != adj_close (e.g. post-dividend adjustment).
-    # adj_close is the split/dividend-adjusted price that should be used.
+    # Simulate bars where close != adj_close (e.g. pre-split history stored
+    # alongside its backward-adjusted price).
     _seed_prices(conn, "QADJTEST", [
         ("2024-01-10", 200.0, 100.0, 1_000_000),  # close=200, adj_close=100
         ("2024-03-10", 200.0, 100.0, 1_000_000),
     ])
     result = get_quarter_price("QADJTEST", "2024-03-31", conn)
     assert result is not None
-    # VWAC on adj_close: (100*1M + 100*1M) / 2M = 100.0
-    # VWAC on close:     (200*1M + 200*1M) / 2M = 200.0
-    assert abs(result - 100.0) < 0.001, (
-        f"Expected 100.0 (adj_close used) but got {result} (raw close used)"
+    # VWAC on close:     (200*1M + 200*1M) / 2M = 200.0  ← expected (unadjusted basis)
+    # VWAC on adj_close: (100*1M + 100*1M) / 2M = 100.0  ← would indicate adj_close was used
+    assert abs(result - 200.0) < 0.001, (
+        f"Expected 200.0 (unadjusted close used) but got {result} "
+        f"(adj_close may have been used instead)"
     )
 
 

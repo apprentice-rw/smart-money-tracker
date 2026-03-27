@@ -16,15 +16,16 @@ Price / volume basis (Yahoo Finance):
       volume    — raw unadjusted share count
 
     The quarter VWAC (_compute_vwac) is computed as:
-        Σ(adj_close × volume) / Σ(volume)
+        Σ(close_i × volume_i) / Σ(volume_i)
 
-    This pairs adjusted prices with raw volumes. It is consistent for
-    quarters without intra-period splits or large special dividends (the
-    common case for quarterly 13F-tracked positions). For intra-quarter
-    splits the volume denominator is slightly understated for pre-split
-    bars, which is a documented V1 approximation. A fully rigorous
-    treatment would require deriving split-adjusted volume from corporate
-    action history, which is left for a future provider.
+    Both inputs are on the same unadjusted basis — close is the actual market
+    price that day, volume is the raw share count that day — so the formula
+    is internally consistent across the entire quarter, including around
+    stock-split events. The result is the historical volume-weighted average
+    price per share in the unadjusted price basis.
+
+    adj_close is stored for future use (e.g. a V2 provider that applies
+    split-adjusted volume normalization) but is not used in V1 VWAC.
 """
 
 from abc import ABC, abstractmethod

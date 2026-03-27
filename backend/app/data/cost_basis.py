@@ -25,18 +25,24 @@ from sqlalchemy.sql import text
 
 def _compute_vwac(bars: list[dict]) -> Optional[float]:
     """
-    Volume-Weighted Average Close (VWAC).
+    Volume-Weighted Average Close (VWAC) using unadjusted close prices.
 
-    Each bar dict must have 'adj_close' (preferred) or 'close', and 'volume'.
-    Falls back to arithmetic mean of adj_close when total volume is zero or None.
+    V1 computes VWAC on the unadjusted basis: Σ(close_i × volume_i) / Σ(volume_i).
+    Both inputs (unadjusted close and raw volume) are on the same per-share unit,
+    so the formula is internally consistent across quarters that include stock splits.
+
+    adj_close is stored in price_history but is NOT used here — pairing adj_close
+    with raw volume would be inconsistent around splits (pre-split bars would have
+    a lower adjusted price but the same raw share count, understating their weight
+    relative to post-split bars).
+
+    Falls back to arithmetic mean of close when total volume is zero or None.
     Returns None if bars is empty or all close values are missing.
-
-    Formula: Σ(adj_close_i × volume_i) / Σ(volume_i)
     """
     effective_closes = [
-        b.get("adj_close") or b.get("close")
+        b.get("close") or b.get("adj_close")
         for b in bars
-        if b.get("adj_close") or b.get("close")
+        if b.get("close") or b.get("adj_close")
     ]
     if not effective_closes:
         return None
@@ -44,7 +50,7 @@ def _compute_vwac(bars: list[dict]) -> Optional[float]:
     total_volume = sum(b.get("volume") or 0 for b in bars)
     if total_volume > 0:
         weighted = sum(
-            (b.get("adj_close") or b.get("close") or 0.0) * (b.get("volume") or 0)
+            (b.get("close") or b.get("adj_close") or 0.0) * (b.get("volume") or 0)
             for b in bars
         )
         return weighted / total_volume
@@ -82,6 +88,7 @@ def get_quarter_price(
     Reads from the price_history table — no network calls at query time.
     The quarter window is the exact calendar quarter that ends on *period*:
       [quarter_start, period]  — e.g. 2024-01-01 to 2024-03-31 for Q1 2024.
+    The result is in unadjusted price terms (see _compute_vwac docstring).
 
     Returns None if:
       - ticker is None (CUSIP not resolved)
