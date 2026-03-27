@@ -60,25 +60,25 @@ class YahooPriceProvider(PriceProvider):
                 auto_adjust=True,
                 actions=False,
             )
+
+            if df is None or df.empty:
+                return []
+
+            bars: list[PriceBar] = []
+            for idx, row in df.iterrows():
+                try:
+                    close_val = float(row["Close"])
+                    vol = int(row["Volume"]) if row["Volume"] > 0 else None
+                except (KeyError, TypeError, ValueError):
+                    continue
+                bars.append(
+                    PriceBar(
+                        date=idx.strftime("%Y-%m-%d"),
+                        close=close_val,
+                        adj_close=close_val,  # auto_adjust=True: Close is already adjusted
+                        volume=vol,
+                    )
+                )
+            return bars
         except Exception:
             return []
-
-        if df is None or df.empty:
-            return []
-
-        bars: list[PriceBar] = []
-        for idx, row in df.iterrows():
-            try:
-                close_val = float(row["Close"])
-                vol = int(row["Volume"]) if row["Volume"] > 0 else None
-            except (KeyError, TypeError, ValueError):
-                continue
-            bars.append(
-                PriceBar(
-                    date=idx.strftime("%Y-%m-%d"),
-                    close=close_val,
-                    adj_close=close_val,  # auto_adjust=True: Close is already adjusted
-                    volume=vol,
-                )
-            )
-        return bars
