@@ -352,3 +352,71 @@ def test_engine_no_price_data_yields_null(conn):
     assert row is not None
     assert row["avg_cost_per_share"] is None
     assert row["price_source"] is None
+
+
+# ---------------------------------------------------------------------------
+# API: GET /institutions/{id}/cost-basis
+# ---------------------------------------------------------------------------
+
+def _seed_api_scenario(conn):
+    """Seeds a complete scenario and runs the engine, ready for API queries."""
+    inst_id = _seed_institution(conn, "API Test Fund", "0099000001")
+    fid0 = _seed_filing(conn, inst_id, "2023-09-30", "2023-11-14", "API-Q3")
+    fid1 = _seed_filing(conn, inst_id, "2023-12-31", "2024-02-14", "API-Q4")
+    _seed_holding(conn, fid1, "APICUSIP", 200, 30_000, "API Stock Co")
+    _seed_ticker(conn, "APICUSIP", "APITK", "API Stock Co")
+    _seed_prices(conn, "APITK", [
+        ("2023-10-02", 150.0, 150.0, 1_000_000),
+        ("2023-12-20", 150.0, 150.0, 1_000_000),
+    ])
+    _seed_change(conn, inst_id, fid0, fid1, "APICUSIP", "new",
+                 None, 200, None, 30_000, issuer="API Stock Co")
+
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    compute_institution_cost_basis(inst_id, conn)
+    return inst_id
+
+
+def test_cost_basis_endpoint_response_shape(conn, client):
+    inst_id = _seed_api_scenario(conn)
+    resp = client.get(f"/institutions/{inst_id}/cost-basis")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "institution" in data
+    assert data["institution"]["id"] == inst_id
+
+    assert "cost_basis" in data
+    assert len(data["cost_basis"]) >= 1
+
+    cb = data["cost_basis"][0]
+    for field in ("cusip", "ticker", "issuer_name", "period", "shares",
+                  "avg_cost_per_share", "total_cost_basis",
+                  "quarter_buy_price", "change_type", "price_source"):
+        assert field in cb, f"Missing field: {field}"
+
+
+def test_cost_basis_endpoint_values(conn, client):
+    inst_id = _seed_api_scenario(conn)
+    resp = client.get(f"/institutions/{inst_id}/cost-basis")
+    cb = resp.json()["cost_basis"][0]
+
+    assert cb["cusip"] == "APICUSIP"
+    assert cb["ticker"] == "APITK"
+    assert cb["shares"] == 200
+    assert cb["change_type"] == "new"
+    assert abs(cb["avg_cost_per_share"] - 150.0) < 0.01
+    assert abs(cb["total_cost_basis"] - 30_000.0) < 1.0
+    assert cb["price_source"] == "yahoo"
+
+
+def test_cost_basis_endpoint_institution_not_found(client):
+    assert client.get("/institutions/99999/cost-basis").status_code == 404
+
+
+def test_cost_basis_endpoint_filter_by_cusip(conn, client):
+    inst_id = _seed_api_scenario(conn)
+    resp = client.get(f"/institutions/{inst_id}/cost-basis?cusip=APICUSIP")
+    assert resp.status_code == 200
+    rows = resp.json()["cost_basis"]
+    assert all(r["cusip"] == "APICUSIP" for r in rows)

@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.app.core.config import ALLOWED_ORIGINS, FRONTEND_DIR
-from backend.app.api.routes import health, institutions, stocks, tickers, consensus
+from backend.app.api.routes import health, institutions, stocks, tickers, consensus, cost_basis
 
 app = FastAPI(
     title="Smart Money Tracker API",
@@ -30,6 +30,7 @@ app.include_router(tickers.router)
 app.include_router(institutions.router)
 app.include_router(stocks.router)
 app.include_router(consensus.router)
+app.include_router(cost_basis.router)
 
 # Serve the built React frontend at /app.
 # Run `cd frontend && npm run build` first to populate frontend/dist/.
