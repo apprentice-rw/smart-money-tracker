@@ -466,3 +466,29 @@ def test_stock_history_cost_basis_field_always_present(conn, client):
     for row in data["history"]:
         assert "estimated_avg_cost" in row
         assert "estimated_total_cost" in row
+
+
+def test_engine_increased_with_zero_curr_shares_does_not_crash(conn):
+    """Malformed data: change_type=increased but curr_shares=0 should not raise."""
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    inst_id = _seed_institution(conn, "Zero Shares Fund", "0009000003")
+    fid0 = _seed_filing(conn, inst_id, "2023-09-30", "2023-11-14", "ZS-Q3")
+    fid1 = _seed_filing(conn, inst_id, "2023-12-31", "2024-02-14", "ZS-Q4")
+    _seed_ticker(conn, "ZSCUSIP", "ZSTK")
+    _seed_prices(conn, "ZSTK", [
+        ("2023-10-02", 100.0, 100.0, 1_000_000),
+    ])
+    # curr_shares=0 with change_type=increased is malformed but must not crash
+    _seed_change(conn, inst_id, fid0, fid1, "ZSCUSIP", "increased",
+                 50, 0, 5_000, 0, issuer="Zero Shares Co")
+
+    # Must not raise ZeroDivisionError
+    n = compute_institution_cost_basis(inst_id, conn)
+    assert n >= 1
+
+    row = conn.execute(text(
+        "SELECT avg_cost_per_share, shares FROM estimated_cost_basis "
+        "WHERE institution_id=:i AND cusip='ZSCUSIP'"
+    ), {"i": inst_id}).mappings().fetchone()
+    assert row is not None
+    assert row["shares"] == 0  # curr_shares was 0

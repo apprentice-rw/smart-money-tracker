@@ -169,10 +169,10 @@ def compute_institution_cost_basis(institution_id: int, conn: Connection) -> int
 
         elif change_type == "increased":
             delta = curr_shares - prev_shares
-            if quarter_buy_price is not None and prev_cost is not None:
+            if quarter_buy_price is not None and prev_cost is not None and curr_shares > 0:
                 new_cost = (prev_shares * prev_cost + delta * quarter_buy_price) / curr_shares
             else:
-                # Cannot update: prior cost unknown or price unavailable
+                # Cannot update: prior cost unknown, price unavailable, or zero shares (malformed data)
                 new_cost = prev_cost
 
         else:  # decreased, unchanged
