@@ -12,7 +12,7 @@ To swap the price source:  only change fetch_prices.py + price_provider.py.
 The rolling engine in (3) calls (2) and is unaffected by either change.
 """
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Optional
 
 from sqlalchemy.engine import Connection
@@ -57,6 +57,20 @@ def _compute_vwac(bars: list[dict]) -> Optional[float]:
 # 2. Quarter representative price — reads from price_history in DB
 # ---------------------------------------------------------------------------
 
+def _quarter_start(period_dt: date) -> date:
+    """
+    Return the first day of the calendar quarter that ends on *period_dt*.
+
+    Standard 13F quarter-end dates and their quarter starts:
+      YYYY-03-31 → YYYY-01-01   (Q1)
+      YYYY-06-30 → YYYY-04-01   (Q2)
+      YYYY-09-30 → YYYY-07-01   (Q3)
+      YYYY-12-31 → YYYY-10-01   (Q4)
+    """
+    quarter_start_month = ((period_dt.month - 1) // 3) * 3 + 1
+    return date(period_dt.year, quarter_start_month, 1)
+
+
 def get_quarter_price(
     ticker: Optional[str],
     period: str,
@@ -66,8 +80,8 @@ def get_quarter_price(
     Returns the quarter representative buy price for (ticker, period).
 
     Reads from the price_history table — no network calls at query time.
-    The quarter window is [period - 95 days, period], which covers an
-    approximate calendar quarter for any standard quarter-end date.
+    The quarter window is the exact calendar quarter that ends on *period*:
+      [quarter_start, period]  — e.g. 2024-01-01 to 2024-03-31 for Q1 2024.
 
     Returns None if:
       - ticker is None (CUSIP not resolved)
@@ -78,7 +92,7 @@ def get_quarter_price(
         return None
 
     period_dt = date.fromisoformat(period)
-    start_dt = period_dt - timedelta(days=95)
+    start_dt = _quarter_start(period_dt)
 
     rows = conn.execute(
         text("""

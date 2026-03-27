@@ -66,7 +66,9 @@ def get_cost_basis(
             ecb.price_source
         FROM estimated_cost_basis ecb
         WHERE {where_clause}
-        ORDER BY ecb.period DESC, ecb.avg_cost_per_share DESC NULLS LAST
+        ORDER BY ecb.period DESC,
+                 CASE WHEN ecb.avg_cost_per_share IS NULL THEN 1 ELSE 0 END ASC,
+                 ecb.avg_cost_per_share DESC
         """),
         params,
     ).mappings().fetchall()

@@ -6,9 +6,25 @@ V1 uses Yahoo Finance via yfinance. To swap providers:
   2. Implement fetch_history()
   3. Pass your new class to fetch_prices.py
 
-Design note: the YahooPriceProvider uses auto_adjust=True so the 'Close'
-column returned by yfinance already reflects split and dividend adjustments.
-adj_close is set equal to close for consistency with the PriceBar contract.
+Price / volume basis (Yahoo Finance):
+    We use auto_adjust=False so yfinance returns both 'Close' (unadjusted)
+    and 'Adj Close' (split+dividend-adjusted), plus raw Volume.
+
+    Stored fields:
+      close     — unadjusted close (the price actually printed that day)
+      adj_close — split+dividend-adjusted close from 'Adj Close' column
+      volume    — raw unadjusted share count
+
+    The quarter VWAC (_compute_vwac) is computed as:
+        Σ(adj_close × volume) / Σ(volume)
+
+    This pairs adjusted prices with raw volumes. It is consistent for
+    quarters without intra-period splits or large special dividends (the
+    common case for quarterly 13F-tracked positions). For intra-quarter
+    splits the volume denominator is slightly understated for pre-split
+    bars, which is a documented V1 approximation. A fully rigorous
+    treatment would require deriving split-adjusted volume from corporate
+    action history, which is left for a future provider.
 """
 
 from abc import ABC, abstractmethod
@@ -19,9 +35,9 @@ from typing import Optional
 @dataclass
 class PriceBar:
     date: str                    # YYYY-MM-DD
-    close: float                 # split/dividend-adjusted close (for YahooProvider)
-    adj_close: Optional[float]   # same as close when auto_adjust=True
-    volume: Optional[int]        # None if not available or zero
+    close: float                 # unadjusted close
+    adj_close: Optional[float]   # split+dividend-adjusted close; None if unavailable
+    volume: Optional[int]        # raw unadjusted share count; None if zero or unavailable
 
 
 class PriceProvider(ABC):
@@ -38,9 +54,9 @@ class YahooPriceProvider(PriceProvider):
     """
     Yahoo Finance price provider via the yfinance library.
 
-    Uses Ticker.history(auto_adjust=True) so 'Close' is always the
-    split/dividend-adjusted price. Volume is set to None when yfinance
-    returns 0 (uninformative for VWAC weighting).
+    Uses auto_adjust=False to get explicit unadjusted Close, Adj Close,
+    and raw Volume columns. See module docstring for the price/volume basis
+    rationale.
     """
 
     def fetch_history(self, ticker: str, start: str, end: str) -> list[PriceBar]:
@@ -57,7 +73,7 @@ class YahooPriceProvider(PriceProvider):
             df = ticker_obj.history(
                 start=start,
                 end=end_exclusive,
-                auto_adjust=True,
+                auto_adjust=False,
                 actions=False,
             )
 
@@ -68,6 +84,8 @@ class YahooPriceProvider(PriceProvider):
             for idx, row in df.iterrows():
                 try:
                     close_val = float(row["Close"])
+                    # "Adj Close" may not be present in all yfinance versions
+                    adj_val = float(row["Adj Close"]) if "Adj Close" in row.index else close_val
                     vol = int(row["Volume"]) if row["Volume"] > 0 else None
                 except (KeyError, TypeError, ValueError):
                     continue
@@ -75,7 +93,7 @@ class YahooPriceProvider(PriceProvider):
                     PriceBar(
                         date=idx.strftime("%Y-%m-%d"),
                         close=close_val,
-                        adj_close=close_val,  # auto_adjust=True: Close is already adjusted
+                        adj_close=adj_val,
                         volume=vol,
                     )
                 )

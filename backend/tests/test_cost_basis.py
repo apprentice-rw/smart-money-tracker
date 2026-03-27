@@ -198,6 +198,43 @@ def test_get_quarter_price_returns_none_when_no_db_data(conn):
     assert get_quarter_price("NOTICKERS", "2024-12-31", conn) is None
 
 
+def test_get_quarter_price_excludes_prior_quarter_bars(conn):
+    """A bar dated in the prior quarter must not contribute to the current quarter VWAC."""
+    from backend.app.data.cost_basis import get_quarter_price
+    # Q1 2024 window is 2024-01-01 to 2024-03-31.
+    # The bar on 2023-12-31 is Q4 2023 and must be excluded.
+    _seed_prices(conn, "QBOUND", [
+        ("2023-12-31", 500.0, 500.0, 1_000_000),  # prior quarter — must be excluded
+        ("2024-01-15", 100.0, 100.0, 1_000_000),
+        ("2024-03-15", 100.0, 100.0, 1_000_000),
+    ])
+    result = get_quarter_price("QBOUND", "2024-03-31", conn)
+    assert result is not None
+    # If the Dec bar were included: (500×1M + 100×1M + 100×1M) / 3M = 233.33
+    # With only Jan+Mar bars:       (100×1M + 100×1M) / 2M = 100.0
+    assert abs(result - 100.0) < 0.001, (
+        f"Expected 100.0 (prior-quarter bar excluded) but got {result}"
+    )
+
+
+def test_get_quarter_price_uses_adj_close_for_vwac(conn):
+    """VWAC must be computed from adj_close (not raw close) when they differ."""
+    from backend.app.data.cost_basis import get_quarter_price
+    # Simulate a stock where close != adj_close (e.g. post-dividend adjustment).
+    # adj_close is the split/dividend-adjusted price that should be used.
+    _seed_prices(conn, "QADJTEST", [
+        ("2024-01-10", 200.0, 100.0, 1_000_000),  # close=200, adj_close=100
+        ("2024-03-10", 200.0, 100.0, 1_000_000),
+    ])
+    result = get_quarter_price("QADJTEST", "2024-03-31", conn)
+    assert result is not None
+    # VWAC on adj_close: (100*1M + 100*1M) / 2M = 100.0
+    # VWAC on close:     (200*1M + 200*1M) / 2M = 200.0
+    assert abs(result - 100.0) < 0.001, (
+        f"Expected 100.0 (adj_close used) but got {result} (raw close used)"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Rolling Average Cost engine tests
 # ---------------------------------------------------------------------------
@@ -224,8 +261,9 @@ def _seed_base_scenario(conn):
     _seed_ticker(conn, _CUSIP, _TICKER, "Test Stock Co")
 
     # Price data — uniform closes so VWAC == _PRICE_Qn exactly.
-    # Q4 bars end on 2023-12-20 (before Q1 window start 2023-12-27)
-    # to prevent the last Q4 bar bleeding into the Q1 95-day window.
+    # Q4 2023 bars: Oct-Dec 2023 (exact quarter boundary = 2023-10-01 to 2023-12-31)
+    # Q1 2024 bars: Jan-Mar 2024 (exact quarter boundary = 2024-01-01 to 2024-03-31)
+    # No bleed between quarters since get_quarter_price now uses exact calendar start.
     _seed_prices(conn, _TICKER, [
         ("2023-10-02", _PRICE_Q1, _PRICE_Q1, 1_000_000),
         ("2023-11-01", _PRICE_Q1, _PRICE_Q1, 1_000_000),
@@ -420,6 +458,49 @@ def test_cost_basis_endpoint_filter_by_cusip(conn, client):
     assert resp.status_code == 200
     rows = resp.json()["cost_basis"]
     assert all(r["cusip"] == "APICUSIP" for r in rows)
+
+
+def test_cost_basis_ordering_nulls_after_non_nulls(conn, client):
+    """Rows with avg_cost_per_share=NULL must sort after non-NULL rows (cross-DB safe)."""
+    # Seed an institution with two positions in the same quarter:
+    # one with price data (avg_cost non-null) and one without (avg_cost null).
+    inst_id = _seed_institution(conn, "Order Test Fund", "0088000001")
+    fid0 = _seed_filing(conn, inst_id, "2023-09-30", "2023-11-14", "ORD-Q3")
+    fid1 = _seed_filing(conn, inst_id, "2023-12-31", "2024-02-14", "ORD-Q4")
+
+    # Position A — has price data
+    _seed_ticker(conn, "ORDCUSIPA", "ORDTKA", "Order Stock A")
+    _seed_prices(conn, "ORDTKA", [("2023-10-15", 100.0, 100.0, 1_000_000)])
+    _seed_holding(conn, fid1, "ORDCUSIPA", 100, 10_000, "Order Stock A")
+    _seed_change(conn, inst_id, fid0, fid1, "ORDCUSIPA", "new",
+                 None, 100, None, 10_000, issuer="Order Stock A")
+
+    # Position B — no ticker, so avg_cost will be NULL
+    _seed_holding(conn, fid1, "ORDCUSIPB", 50, 5_000, "Order Stock B")
+    _seed_change(conn, inst_id, fid0, fid1, "ORDCUSIPB", "new",
+                 None, 50, None, 5_000, issuer="Order Stock B")
+
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    compute_institution_cost_basis(inst_id, conn)
+
+    resp = client.get(f"/institutions/{inst_id}/cost-basis")
+    assert resp.status_code == 200
+    rows = resp.json()["cost_basis"]
+
+    # Collect null/non-null positions
+    non_null = [r for r in rows if r["avg_cost_per_share"] is not None]
+    null_rows = [r for r in rows if r["avg_cost_per_share"] is None]
+
+    assert len(non_null) >= 1
+    assert len(null_rows) >= 1
+
+    # All non-null rows must appear before any null row
+    if non_null and null_rows:
+        last_non_null_idx = max(rows.index(r) for r in non_null)
+        first_null_idx    = min(rows.index(r) for r in null_rows)
+        assert last_non_null_idx < first_null_idx, (
+            "NULL avg_cost rows appeared before non-NULL rows"
+        )
 
 
 # ---------------------------------------------------------------------------
