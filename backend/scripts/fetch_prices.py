@@ -17,7 +17,7 @@ from datetime import date, timedelta
 from sqlalchemy.sql import text
 
 from backend.app.core.database import engine
-from backend.app.data.price_provider import YahooPriceProvider
+from backend.app.data.price_provider import YahooPriceProvider, SplitEvent
 
 DEFAULT_YEARS = 3  # covers 8 quarters + buffer
 
@@ -29,6 +29,29 @@ def _get_tickers(conn, only_ticker):
         text("SELECT DISTINCT ticker FROM cusip_ticker_map WHERE ticker IS NOT NULL")
     ).fetchall()
     return sorted(r[0] for r in rows)
+
+
+def _store_splits(conn, ticker, splits):
+    if not splits:
+        return 0
+    conn.execute(
+        text("""
+        INSERT INTO stock_splits (ticker, date, ratio, source)
+        VALUES (:ticker, :date, :ratio, :source)
+        ON CONFLICT (ticker, date) DO NOTHING
+        """),
+        [
+            {
+                "ticker": ticker,
+                "date":   s.date,
+                "ratio":  s.ratio,
+                "source": "yahoo",
+            }
+            for s in splits
+        ],
+    )
+    conn.commit()
+    return len(splits)
 
 
 def _store_bars(conn, ticker, bars):
@@ -85,11 +108,14 @@ def main():
 
     for i, ticker in enumerate(tickers, 1):
         try:
-            bars = provider.fetch_history(ticker, start_date, end_date)
+            bars   = provider.fetch_history(ticker, start_date, end_date)
+            splits = provider.fetch_splits(ticker, start_date, end_date)
             with engine.connect() as conn:
-                n = _store_bars(conn, ticker, bars)
-            total_rows += n
-            print(f"  [{i:>4}/{len(tickers)}]  {ticker:<12}  {n:>6} bars stored")
+                n_bars   = _store_bars(conn, ticker, bars)
+                n_splits = _store_splits(conn, ticker, splits)
+            total_rows += n_bars
+            split_str = f"  {n_splits} split(s)" if n_splits else ""
+            print(f"  [{i:>4}/{len(tickers)}]  {ticker:<12}  {n_bars:>6} bars stored{split_str}")
         except Exception as exc:
             errors.append((ticker, str(exc)))
             print(f"  [{i:>4}/{len(tickers)}]  {ticker:<12}  ERROR: {exc}")

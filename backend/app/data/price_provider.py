@@ -41,6 +41,12 @@ class PriceBar:
     volume: Optional[int]        # raw unadjusted share count; None if zero or unavailable
 
 
+@dataclass
+class SplitEvent:
+    date: str    # YYYY-MM-DD, effective date of the split
+    ratio: float # post_shares / pre_shares; 2.0 = 2-for-1 forward, 0.5 = 1-for-2 reverse
+
+
 class PriceProvider(ABC):
     @abstractmethod
     def fetch_history(self, ticker: str, start: str, end: str) -> list[PriceBar]:
@@ -48,6 +54,18 @@ class PriceProvider(ABC):
         Fetch daily price bars for *ticker* from *start* to *end* (both inclusive,
         YYYY-MM-DD format). Returns an empty list if the ticker is not found or
         no data exists in the requested range. Never raises on missing data.
+        """
+
+    @abstractmethod
+    def fetch_splits(self, ticker: str, start: str, end: str) -> list["SplitEvent"]:
+        """
+        Fetch stock split events for *ticker* with effective date between *start*
+        and *end* (both inclusive, YYYY-MM-DD). Returns an empty list when no
+        splits exist in the range. Never raises on missing data.
+
+        ratio = post_shares / pre_shares:
+          2.0  — 2-for-1 forward split (shares double, price halves)
+          0.5  — 1-for-2 reverse split (shares halve, price doubles)
         """
 
 
@@ -99,5 +117,27 @@ class YahooPriceProvider(PriceProvider):
                     )
                 )
             return bars
+        except Exception:
+            return []
+
+    def fetch_splits(self, ticker: str, start: str, end: str) -> list[SplitEvent]:
+        """
+        Retrieves split history via yfinance Ticker.splits (a pandas Series
+        indexed by date with ratio values). Filters to the requested date range.
+        """
+        try:
+            import yfinance as yf
+            ticker_obj = yf.Ticker(ticker)
+            splits = ticker_obj.splits  # pandas Series; empty if no splits
+            if splits is None or splits.empty:
+                return []
+            result: list[SplitEvent] = []
+            for dt, ratio in splits.items():
+                date_str = (
+                    dt.strftime("%Y-%m-%d") if hasattr(dt, "strftime") else str(dt)[:10]
+                )
+                if start <= date_str <= end and ratio > 0:
+                    result.append(SplitEvent(date=date_str, ratio=float(ratio)))
+            return result
         except Exception:
             return []

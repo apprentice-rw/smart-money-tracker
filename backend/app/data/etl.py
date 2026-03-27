@@ -117,6 +117,18 @@ SCHEMA_STATEMENTS = [
     )
     """,
 
+    # stock_splits — corporate split events used by the cost-basis engine
+    # ratio = post_shares / pre_shares  (e.g. 2.0 for 2:1, 0.5 for 1:2 reverse)
+    """
+    CREATE TABLE IF NOT EXISTS stock_splits (
+        ticker      TEXT    NOT NULL,
+        date        TEXT    NOT NULL,
+        ratio       REAL    NOT NULL,
+        source      TEXT    NOT NULL DEFAULT 'yahoo',
+        PRIMARY KEY (ticker, date)
+    )
+    """,
+
     # estimated_cost_basis — precomputed per-institution rolling Average Cost
     f"""
     CREATE TABLE IF NOT EXISTS estimated_cost_basis (
@@ -150,6 +162,7 @@ SCHEMA_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_price_history_ticker ON price_history (ticker)",
     "CREATE INDEX IF NOT EXISTS idx_ecb_inst_period ON estimated_cost_basis (institution_id, period)",
     "CREATE INDEX IF NOT EXISTS idx_ecb_cusip        ON estimated_cost_basis (cusip)",
+    "CREATE INDEX IF NOT EXISTS idx_stock_splits_ticker ON stock_splits (ticker, date)",
 ]
 
 
@@ -179,7 +192,7 @@ def wipe_db() -> None:
         with engine.connect() as conn:
             for tbl in ("estimated_cost_basis", "position_changes", "holdings",
                         "filings", "institutions", "cusip_ticker_map",
-                        "price_history"):
+                        "price_history", "stock_splits"):
                 conn.execute(text(f"DROP TABLE IF EXISTS {tbl} CASCADE"))
             conn.commit()
         print("  Dropped all PostgreSQL tables for clean rebuild.")

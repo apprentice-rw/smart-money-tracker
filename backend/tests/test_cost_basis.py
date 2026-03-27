@@ -136,6 +136,15 @@ def _seed_prices(conn, ticker, bars):
     conn.commit()
 
 
+def _seed_split(conn, ticker, date_str, ratio):
+    """Seed a split event into stock_splits."""
+    conn.execute(text(
+        "INSERT OR IGNORE INTO stock_splits (ticker, date, ratio, source) "
+        "VALUES (:t, :d, :r, 'test')"
+    ), {"t": ticker, "d": date_str, "r": ratio})
+    conn.commit()
+
+
 # ---------------------------------------------------------------------------
 # Quarter proxy tests
 # ---------------------------------------------------------------------------
@@ -578,3 +587,180 @@ def test_engine_increased_with_zero_curr_shares_does_not_crash(conn):
     ), {"i": inst_id}).mappings().fetchone()
     assert row is not None
     assert row["shares"] == 0  # curr_shares was 0
+
+
+# ---------------------------------------------------------------------------
+# Split-aware engine tests
+# ---------------------------------------------------------------------------
+
+# CUSIPs and tickers for split tests — isolated from other engine tests
+_SPLIT_CUSIP   = "SPLITCUSIP"
+_SPLIT_TICKER  = "SPLTK"
+_NOSPLIT_CUSIP = "NOSPLITCSP"
+_NOSPLIT_TICKER= "NOSPLTK"
+
+
+def _seed_split_scenario(conn, cusip, ticker, label):
+    """
+    Two filings: Q4-2023 and Q1-2024, with price data for both quarters.
+    Returns (inst_id, fid_q4, fid_q1).
+    """
+    inst_id = _seed_institution(conn, f"Split Fund {label}", f"007{label}000001")
+    fid_q4  = _seed_filing(conn, inst_id, "2023-12-31", "2024-02-14", f"SP{label}-Q4")
+    fid_q1  = _seed_filing(conn, inst_id, "2024-03-31", "2024-05-15", f"SP{label}-Q1")
+    _seed_ticker(conn, cusip, ticker, f"Split Co {label}")
+    # Q4 2023 price: $200
+    _seed_prices(conn, ticker, [
+        ("2023-10-15", 200.0, 200.0, 1_000_000),
+        ("2023-12-15", 200.0, 200.0, 1_000_000),
+    ])
+    # Q1 2024 price: $110 (post-split price, also used for split+buy tests)
+    _seed_prices(conn, ticker, [
+        ("2024-01-15", 110.0, 110.0, 1_000_000),
+        ("2024-03-15", 110.0, 110.0, 1_000_000),
+    ])
+    return inst_id, fid_q4, fid_q1
+
+
+def test_engine_pure_split_preserves_economic_cost(conn):
+    """A 2:1 split with no discretionary trading must not change total cost."""
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    cusip, ticker = _SPLIT_CUSIP + "A", _SPLIT_TICKER + "A"
+    inst_id, fid_q4, fid_q1 = _seed_split_scenario(conn, cusip, ticker, "A")
+
+    # Buy 100 shares in Q4
+    _seed_holding(conn, fid_q4, cusip, 100, 20_000, "Split Co A")
+    # Add a Q3 filing as the "previous" for Q4's "new" position change
+    fid_q3 = _seed_filing(conn, inst_id, "2023-09-30", "2023-11-14", "SPA-Q3")
+    _seed_change(conn, inst_id, fid_q3, fid_q4, cusip, "new", None, 100, None, 20_000)
+
+    # 2:1 split in Jan 2024; Q1 13F shows 200 shares (looks like "increased")
+    _seed_split(conn, ticker, "2024-01-10", 2.0)
+    _seed_holding(conn, fid_q1, cusip, 200, 22_000, "Split Co A")
+    _seed_change(conn, inst_id, fid_q4, fid_q1, cusip, "increased", 100, 200, 20_000, 22_000, 100)
+
+    compute_institution_cost_basis(inst_id, conn)
+
+    # Q4: bought 100 @ VWAC $200
+    q4_row = _fetch_ecb(conn, inst_id, "2023-12-31", cusip=cusip)
+    assert abs(q4_row["avg_cost_per_share"] - 200.0) < 0.01
+
+    # Q1: after 2:1 split, avg_cost should be $100 (economic value unchanged = $20,000)
+    q1_row = _fetch_ecb(conn, inst_id, "2024-03-31", cusip=cusip)
+    assert q1_row is not None
+    assert abs(q1_row["avg_cost_per_share"] - 100.0) < 0.01, (
+        f"Expected $100 after 2:1 split, got {q1_row['avg_cost_per_share']}"
+    )
+    assert abs(q1_row["total_cost_basis"] - 20_000.0) < 1.0, (
+        f"Total economic cost should be unchanged at $20,000, got {q1_row['total_cost_basis']}"
+    )
+
+
+def test_engine_split_plus_buy(conn):
+    """2:1 split + additional buy: only the residual shares above split-adjusted count are treated as buys."""
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    cusip, ticker = _SPLIT_CUSIP + "B", _SPLIT_TICKER + "B"
+    inst_id, fid_q4, fid_q1 = _seed_split_scenario(conn, cusip, ticker, "B")
+
+    # Q4: 100 shares @ VWAC $200
+    fid_q3 = _seed_filing(conn, inst_id, "2023-09-30", "2023-11-14", "SPB-Q3")
+    _seed_holding(conn, fid_q4, cusip, 100, 20_000, "Split Co B")
+    _seed_change(conn, inst_id, fid_q3, fid_q4, cusip, "new", None, 100, None, 20_000)
+
+    # 2:1 split, then buy 50 more → Q1 shows 250 shares total
+    _seed_split(conn, ticker, "2024-01-10", 2.0)
+    _seed_holding(conn, fid_q1, cusip, 250, 27_500, "Split Co B")
+    _seed_change(conn, inst_id, fid_q4, fid_q1, cusip, "increased", 100, 250, 20_000, 27_500, 150)
+
+    compute_institution_cost_basis(inst_id, conn)
+
+    q1_row = _fetch_ecb(conn, inst_id, "2024-03-31", cusip=cusip)
+    # split_adj_prev = 200, effective_delta = 50 (true buy at Q1 VWAC=$110)
+    # new_cost = (200 × $100 + 50 × $110) / 250 = ($20,000 + $5,500) / 250 = $102.0
+    expected = (200 * 100.0 + 50 * 110.0) / 250
+    assert abs(q1_row["avg_cost_per_share"] - expected) < 0.01, (
+        f"Expected {expected:.4f}, got {q1_row['avg_cost_per_share']}"
+    )
+    # price_source should be 'yahoo' (a buy occurred)
+    assert q1_row["price_source"] == "yahoo"
+
+
+def test_engine_split_plus_sell(conn):
+    """2:1 split + partial sell: avg_cost is the split-adjusted prev cost (Average Cost rule)."""
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    cusip, ticker = _SPLIT_CUSIP + "C", _SPLIT_TICKER + "C"
+    inst_id, fid_q4, fid_q1 = _seed_split_scenario(conn, cusip, ticker, "C")
+
+    # Q4: 100 shares @ VWAC $200
+    fid_q3 = _seed_filing(conn, inst_id, "2023-09-30", "2023-11-14", "SPC-Q3")
+    _seed_holding(conn, fid_q4, cusip, 100, 20_000, "Split Co C")
+    _seed_change(conn, inst_id, fid_q3, fid_q4, cusip, "new", None, 100, None, 20_000)
+
+    # 2:1 split, then sell 40 → Q1 shows 160 shares
+    _seed_split(conn, ticker, "2024-01-10", 2.0)
+    _seed_holding(conn, fid_q1, cusip, 160, 17_600, "Split Co C")
+    _seed_change(conn, inst_id, fid_q4, fid_q1, cusip, "increased", 100, 160, 20_000, 17_600, 60)
+
+    compute_institution_cost_basis(inst_id, conn)
+
+    q1_row = _fetch_ecb(conn, inst_id, "2024-03-31", cusip=cusip)
+    # split_adj_prev = 200, effective_delta = -40 (net sell)
+    # Average Cost rule: cost unchanged at $100
+    assert abs(q1_row["avg_cost_per_share"] - 100.0) < 0.01, (
+        f"Expected $100 (split-adjusted, no buy), got {q1_row['avg_cost_per_share']}"
+    )
+    # No buy occurred — price_source should be None
+    assert q1_row["price_source"] is None
+
+
+def test_engine_reverse_split(conn):
+    """1:2 reverse split halves shares and doubles avg_cost_per_share."""
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    cusip, ticker = _SPLIT_CUSIP + "D", _SPLIT_TICKER + "D"
+    inst_id, fid_q4, fid_q1 = _seed_split_scenario(conn, cusip, ticker, "D")
+
+    # Q4: 200 shares @ VWAC $200 (total cost = $40,000)
+    fid_q3 = _seed_filing(conn, inst_id, "2023-09-30", "2023-11-14", "SPD-Q3")
+    _seed_holding(conn, fid_q4, cusip, 200, 40_000, "Split Co D")
+    _seed_change(conn, inst_id, fid_q3, fid_q4, cusip, "new", None, 200, None, 40_000)
+
+    # 1:2 reverse split (ratio=0.5), Q1 shows 100 shares
+    _seed_split(conn, ticker, "2024-01-10", 0.5)
+    _seed_holding(conn, fid_q1, cusip, 100, 40_000, "Split Co D")
+    _seed_change(conn, inst_id, fid_q4, fid_q1, cusip, "decreased", 200, 100, 40_000, 40_000, -100)
+
+    compute_institution_cost_basis(inst_id, conn)
+
+    q1_row = _fetch_ecb(conn, inst_id, "2024-03-31", cusip=cusip)
+    # prev_cost = $200 → after 0.5 reverse split → $200 / 0.5 = $400
+    # split_adj_prev = round(200 × 0.5) = 100
+    # effective_delta = 100 - 100 = 0 → no buy, avg_cost = $400
+    assert abs(q1_row["avg_cost_per_share"] - 400.0) < 0.01, (
+        f"Expected $400 after 1:2 reverse split, got {q1_row['avg_cost_per_share']}"
+    )
+    assert abs(q1_row["total_cost_basis"] - 40_000.0) < 1.0, (
+        "Total economic cost should be unchanged after reverse split"
+    )
+
+
+def test_engine_no_split_unchanged(conn):
+    """Without any splits, the engine behaves exactly as before: no cost change on hold."""
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    cusip, ticker = _NOSPLIT_CUSIP + "A", _NOSPLIT_TICKER + "A"
+    inst_id, fid_q4, fid_q1 = _seed_split_scenario(conn, cusip, ticker, "NA")
+
+    # Q4: 100 shares @ VWAC $200
+    fid_q3 = _seed_filing(conn, inst_id, "2023-09-30", "2023-11-14", "NSNA-Q3")
+    _seed_holding(conn, fid_q4, cusip, 100, 20_000, "No Split Co A")
+    _seed_change(conn, inst_id, fid_q3, fid_q4, cusip, "new", None, 100, None, 20_000)
+
+    # No split; Q1 shows same 100 shares (unchanged)
+    _seed_holding(conn, fid_q1, cusip, 100, 11_000, "No Split Co A")
+    _seed_change(conn, inst_id, fid_q4, fid_q1, cusip, "unchanged", 100, 100, 20_000, 11_000, 0)
+
+    compute_institution_cost_basis(inst_id, conn)
+
+    q1_row = _fetch_ecb(conn, inst_id, "2024-03-31", cusip=cusip)
+    assert abs(q1_row["avg_cost_per_share"] - 200.0) < 0.01, (
+        "No split → cost should remain $200"
+    )
