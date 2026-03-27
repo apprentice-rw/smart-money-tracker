@@ -196,3 +196,159 @@ def test_get_quarter_price_returns_none_for_null_ticker(conn):
 def test_get_quarter_price_returns_none_when_no_db_data(conn):
     from backend.app.data.cost_basis import get_quarter_price
     assert get_quarter_price("NOTICKERS", "2024-12-31", conn) is None
+
+
+# ---------------------------------------------------------------------------
+# Rolling Average Cost engine tests
+# ---------------------------------------------------------------------------
+
+# Shared CUSIP / ticker for engine tests
+_CUSIP = "TESTCUSIP"
+_TICKER = "TSTK"
+_PRICE_Q1 = 150.0   # VWAC for Q4 2023
+_PRICE_Q2 = 180.0   # VWAC for Q1 2024
+
+
+def _seed_base_scenario(conn):
+    """
+    Seeds: 1 institution (CIK 0009000001), 3 filings (Q3-2023, Q4-2023, Q1-2024),
+    price data for Q4-2023 and Q1-2024, ticker mapping.
+    Returns (inst_id, fid_q3, fid_q4, fid_q1).
+    All inserts use INSERT OR IGNORE — safe to call multiple times.
+    """
+    inst_id = _seed_institution(conn, "Engine Test Fund", "0009000001")
+    fid_q3  = _seed_filing(conn, inst_id, "2023-09-30", "2023-11-14", "ENG-Q3")
+    fid_q4  = _seed_filing(conn, inst_id, "2023-12-31", "2024-02-14", "ENG-Q4")
+    fid_q1  = _seed_filing(conn, inst_id, "2024-03-31", "2024-05-15", "ENG-Q1")
+
+    _seed_ticker(conn, _CUSIP, _TICKER, "Test Stock Co")
+
+    # Price data — uniform closes so VWAC == _PRICE_Qn exactly.
+    # Q4 bars end on 2023-12-20 (before Q1 window start 2023-12-27)
+    # to prevent the last Q4 bar bleeding into the Q1 95-day window.
+    _seed_prices(conn, _TICKER, [
+        ("2023-10-02", _PRICE_Q1, _PRICE_Q1, 1_000_000),
+        ("2023-11-01", _PRICE_Q1, _PRICE_Q1, 1_000_000),
+        ("2023-12-20", _PRICE_Q1, _PRICE_Q1, 1_000_000),
+        ("2024-01-02", _PRICE_Q2, _PRICE_Q2, 1_000_000),
+        ("2024-02-01", _PRICE_Q2, _PRICE_Q2, 1_000_000),
+        ("2024-03-28", _PRICE_Q2, _PRICE_Q2, 1_000_000),
+    ])
+
+    return inst_id, fid_q3, fid_q4, fid_q1
+
+
+def _fetch_ecb(conn, inst_id, period, cusip=_CUSIP):
+    return conn.execute(text(
+        "SELECT * FROM estimated_cost_basis "
+        "WHERE institution_id=:i AND cusip=:c AND period=:p"
+    ), {"i": inst_id, "c": cusip, "p": period}).mappings().fetchone()
+
+
+def test_engine_new_position(conn):
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    inst_id, fid_q3, fid_q4, _ = _seed_base_scenario(conn)
+    _seed_holding(conn, fid_q4, _CUSIP, 100, 15_000, "Test Stock Co")
+    _seed_change(conn, inst_id, fid_q3, fid_q4, _CUSIP, "new",
+                 None, 100, None, 15_000)
+
+    compute_institution_cost_basis(inst_id, conn)
+
+    row = _fetch_ecb(conn, inst_id, "2023-12-31")
+    assert row is not None
+    assert row["change_type"] == "new"
+    assert abs(row["avg_cost_per_share"] - _PRICE_Q1) < 0.01
+    assert row["shares"] == 100
+    assert row["price_source"] == "yahoo"
+
+
+def test_engine_increased_position(conn):
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    inst_id, fid_q3, fid_q4, fid_q1 = _seed_base_scenario(conn)
+    _seed_holding(conn, fid_q4, _CUSIP, 100, 15_000, "Test Stock Co")
+    _seed_holding(conn, fid_q1, _CUSIP, 150, 27_000, "Test Stock Co")
+    _seed_change(conn, inst_id, fid_q3, fid_q4, _CUSIP, "new",
+                 None, 100, None, 15_000)
+    _seed_change(conn, inst_id, fid_q4, fid_q1, _CUSIP, "increased",
+                 100, 150, 15_000, 27_000, 50)
+
+    compute_institution_cost_basis(inst_id, conn)
+
+    row = _fetch_ecb(conn, inst_id, "2024-03-31")
+    assert row is not None
+    # (100 * 150 + 50 * 180) / 150 = (15000 + 9000) / 150 = 24000 / 150 = 160.0
+    assert abs(row["avg_cost_per_share"] - 160.0) < 0.01
+    assert row["shares"] == 150
+
+
+def test_engine_decreased_position_preserves_cost(conn):
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    inst_id, fid_q3, fid_q4, fid_q1 = _seed_base_scenario(conn)
+    _DCUSIP = _CUSIP + "D"
+    _DTICKER = _TICKER + "D"
+    _seed_ticker(conn, _DCUSIP, _DTICKER, "Test Decr Co")
+    _seed_prices(conn, _DTICKER, [
+        ("2023-10-02", _PRICE_Q1, _PRICE_Q1, 1_000_000),
+        ("2023-12-20", _PRICE_Q1, _PRICE_Q1, 1_000_000),
+    ])
+    _seed_holding(conn, fid_q4, _DCUSIP, 100, 15_000, "Test Decr Co")
+    _seed_holding(conn, fid_q1, _DCUSIP, 60,  10_800, "Test Decr Co")
+    _seed_change(conn, inst_id, fid_q3, fid_q4, _DCUSIP, "new",
+                 None, 100, None, 15_000, issuer="Test Decr Co")
+    _seed_change(conn, inst_id, fid_q4, fid_q1, _DCUSIP, "decreased",
+                 100, 60, 15_000, 10_800, -40, issuer="Test Decr Co")
+
+    compute_institution_cost_basis(inst_id, conn)
+
+    row = _fetch_ecb(conn, inst_id, "2024-03-31", cusip=_DCUSIP)
+    assert row is not None
+    # Average Cost: cost unchanged on partial sale
+    assert abs(row["avg_cost_per_share"] - _PRICE_Q1) < 0.01
+    assert row["shares"] == 60
+
+
+def test_engine_closed_position_nulls_cost(conn):
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    inst_id, fid_q3, fid_q4, fid_q1 = _seed_base_scenario(conn)
+    _CCUSIP = _CUSIP + "C"
+    _CTICKER = _TICKER + "C"
+    _seed_ticker(conn, _CCUSIP, _CTICKER)
+    _seed_prices(conn, _CTICKER, [
+        ("2023-10-02", _PRICE_Q1, _PRICE_Q1, 1_000_000),
+        ("2023-12-20", _PRICE_Q1, _PRICE_Q1, 1_000_000),
+    ])
+    _seed_holding(conn, fid_q4, _CCUSIP, 100, 15_000, "Test Close Co")
+    _seed_change(conn, inst_id, fid_q3, fid_q4, _CCUSIP, "new",
+                 None, 100, None, 15_000, issuer="Test Close Co")
+    _seed_change(conn, inst_id, fid_q4, fid_q1, _CCUSIP, "closed",
+                 100, None, 15_000, None, issuer="Test Close Co")
+
+    compute_institution_cost_basis(inst_id, conn)
+
+    row = _fetch_ecb(conn, inst_id, "2024-03-31", cusip=_CCUSIP)
+    assert row is not None
+    assert row["avg_cost_per_share"] is None
+    assert row["shares"] == 0
+    assert row["change_type"] == "closed"
+
+
+def test_engine_no_price_data_yields_null(conn):
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+    inst_id = _seed_institution(conn, "No Price Fund", "0009000002")
+    fid0 = _seed_filing(conn, inst_id, "2023-09-30", "2023-11-14", "NP-Q3")
+    fid1 = _seed_filing(conn, inst_id, "2023-12-31", "2024-02-14", "NP-Q4")
+    _seed_holding(conn, fid1, "NOCUSIP", 100, 5_000, "No Ticker Co")
+    # No entry in cusip_ticker_map — ticker will be NULL
+    _seed_change(conn, inst_id, fid0, fid1, "NOCUSIP", "new",
+                 None, 100, None, 5_000, issuer="No Ticker Co")
+
+    compute_institution_cost_basis(inst_id, conn)
+
+    row = conn.execute(text(
+        "SELECT avg_cost_per_share, price_source FROM estimated_cost_basis "
+        "WHERE institution_id=:i AND cusip='NOCUSIP'"
+    ), {"i": inst_id}).mappings().fetchone()
+
+    assert row is not None
+    assert row["avg_cost_per_share"] is None
+    assert row["price_source"] is None
