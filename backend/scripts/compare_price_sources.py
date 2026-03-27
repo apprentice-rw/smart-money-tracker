@@ -14,8 +14,6 @@ Usage:
 
 import argparse
 
-from sqlalchemy.sql import text
-
 from backend.app.core.database import engine
 from backend.app.data.cost_basis import get_quarter_price
 
