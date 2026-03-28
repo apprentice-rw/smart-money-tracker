@@ -24,7 +24,21 @@ from backend.app.data.sec_edgar import (
     parse_holdings,
 )
 
-NUM_QUARTERS = 8  # how many quarters to backfill (2 years)
+NUM_QUARTERS = 8   # default quarters for a regular refresh (2 years)
+
+# Extended window for cost-basis-oriented rebuilds (10 years / 40 quarters).
+# Gives the rolling WAC engine enough history to find original entry events
+# for long-held positions that would otherwise show N/A.
+COST_BASIS_QUARTERS = 40
+
+# High-turnover quant-style managers where cost-basis estimates are not
+# meaningful. Skip these when running a cost-basis-oriented historical
+# rebuild (pass exclude=COST_BASIS_EXCLUDE to run_etl).
+COST_BASIS_EXCLUDE: frozenset = frozenset([
+    "Renaissance Technologies",
+    "Bridgewater Associates",
+    "Soros Fund Management",
+])
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +118,51 @@ SCHEMA_STATEMENTS = [
     )
     """,
 
+    # price_history — daily price bars, provider-agnostic
+    """
+    CREATE TABLE IF NOT EXISTS price_history (
+        ticker      TEXT    NOT NULL,
+        date        TEXT    NOT NULL,
+        close       REAL    NOT NULL,
+        adj_close   REAL,
+        volume      BIGINT,
+        source      TEXT    NOT NULL DEFAULT 'yahoo',
+        PRIMARY KEY (ticker, date)
+    )
+    """,
+
+    # stock_splits — corporate split events used by the cost-basis engine
+    # ratio = post_shares / pre_shares  (e.g. 2.0 for 2:1, 0.5 for 1:2 reverse)
+    """
+    CREATE TABLE IF NOT EXISTS stock_splits (
+        ticker      TEXT    NOT NULL,
+        date        TEXT    NOT NULL,
+        ratio       REAL    NOT NULL,
+        source      TEXT    NOT NULL DEFAULT 'yahoo',
+        PRIMARY KEY (ticker, date)
+    )
+    """,
+
+    # estimated_cost_basis — precomputed per-institution rolling Average Cost
+    f"""
+    CREATE TABLE IF NOT EXISTS estimated_cost_basis (
+        id                  {_PK},
+        institution_id      INTEGER NOT NULL REFERENCES institutions(id),
+        cusip               TEXT    NOT NULL,
+        period              TEXT    NOT NULL,
+        ticker              TEXT,
+        issuer_name         TEXT,
+        shares              BIGINT  NOT NULL DEFAULT 0,
+        avg_cost_per_share  REAL,
+        total_cost_basis    REAL,
+        quarter_buy_price   REAL,
+        change_type         TEXT,
+        price_source        TEXT,
+        computed_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (institution_id, cusip, period)
+    )
+    """,
+
     # indexes
     "CREATE INDEX IF NOT EXISTS idx_holdings_cusip    ON holdings (cusip)",
     "CREATE INDEX IF NOT EXISTS idx_holdings_filing   ON holdings (filing_id)",
@@ -114,6 +173,10 @@ SCHEMA_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_changes_cusip     ON position_changes (cusip)",
     "CREATE INDEX IF NOT EXISTS idx_changes_curr      ON position_changes (curr_filing_id)",
     "CREATE INDEX IF NOT EXISTS idx_changes_prev      ON position_changes (prev_filing_id)",
+    "CREATE INDEX IF NOT EXISTS idx_price_history_ticker ON price_history (ticker)",
+    "CREATE INDEX IF NOT EXISTS idx_ecb_inst_period ON estimated_cost_basis (institution_id, period)",
+    "CREATE INDEX IF NOT EXISTS idx_ecb_cusip        ON estimated_cost_basis (cusip)",
+    "CREATE INDEX IF NOT EXISTS idx_stock_splits_ticker ON stock_splits (ticker, date)",
 ]
 
 
@@ -141,8 +204,9 @@ def wipe_db() -> None:
             db_path.unlink()
     else:
         with engine.connect() as conn:
-            for tbl in ("position_changes", "holdings", "filings", "institutions",
-                        "cusip_ticker_map"):
+            for tbl in ("estimated_cost_basis", "position_changes", "holdings",
+                        "filings", "institutions", "cusip_ticker_map",
+                        "price_history", "stock_splits"):
                 conn.execute(text(f"DROP TABLE IF EXISTS {tbl} CASCADE"))
             conn.commit()
         print("  Dropped all PostgreSQL tables for clean rebuild.")
@@ -351,14 +415,29 @@ def upsert_position_changes(
 # Main ETL
 # ---------------------------------------------------------------------------
 
-def run_etl(conn: Connection = None) -> None:
+def run_etl(conn: Connection = None, num_quarters: int = NUM_QUARTERS, exclude=None) -> None:
     """Run the full ETL pipeline.
 
-    Accepts an optional *conn* for backward-compatibility, but opens a fresh
-    engine connection per institution so long-running jobs don't time out on
-    managed databases (e.g. Supabase session-pooler).
+    Parameters
+    ----------
+    conn:
+        Accepted for backward compatibility; not used (each institution gets
+        its own fresh connection to avoid Supabase session-pooler timeouts).
+    num_quarters:
+        How many 13F quarters to backfill per institution.
+        Default: NUM_QUARTERS (8). Use COST_BASIS_QUARTERS (40) for a
+        cost-basis-oriented deep rebuild.
+    exclude:
+        Optional set/frozenset of institution names to skip entirely.
+        Use COST_BASIS_EXCLUDE to skip the three high-turnover managers that
+        produce noisy cost-basis estimates.
     """
+    skip = set(exclude) if exclude else set()
+
     for inst_name, cik in INSTITUTIONS.items():
+        if inst_name in skip:
+            print(f"\n  Skipping (excluded): {inst_name}")
+            continue
         print(f"\n{'─' * 55}")
         print(f"  Processing: {inst_name}  (CIK {cik})")
         print(f"{'─' * 55}")
@@ -367,9 +446,9 @@ def run_etl(conn: Connection = None) -> None:
             inst_id = upsert_institution(inst_conn, inst_name, cik)
             inst_conn.commit()
 
-            print(f"  Fetching last {NUM_QUARTERS} 13F-HR filings ...")
+            print(f"  Fetching last {num_quarters} 13F-HR filings ...")
             try:
-                filings = get_recent_13f_filings(cik, n=NUM_QUARTERS)
+                filings = get_recent_13f_filings(cik, n=num_quarters)
             except Exception as exc:
                 print(f"  ERROR: {exc}")
                 continue

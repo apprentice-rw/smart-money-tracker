@@ -1,5 +1,7 @@
 """Stock endpoints: search and per-CUSIP history."""
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.engine import Connection
 from sqlalchemy.sql import text
@@ -59,15 +61,34 @@ def search_holdings(
 @router.get("/stock/{cusip}/history", tags=["history"])
 def get_stock_history(
     cusip: str = Path(description="9-character CUSIP"),
+    since: Optional[str] = Query(
+        default=None,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description=(
+            "Return only quarters on or after this date (YYYY-MM-DD). "
+            "Default: return all available history. "
+            "Useful for limiting the response when the DB contains an extended backfill."
+        ),
+    ),
     conn: Connection = Depends(get_conn),
 ) -> dict:
     """
     Quarter-by-quarter holdings history for a CUSIP across all tracked institutions.
     portfolio_weight is the position's value as a fraction of total portfolio value
     for that quarter.  Ordered oldest → newest.
+
+    Use ?since=YYYY-MM-DD to limit to a date range without changing the default
+    response shape.  The full history is always available in the DB regardless of
+    this filter.
     """
+    params: dict = {"cusip": cusip.upper()}
+    since_clause = ""
+    if since:
+        since_clause = " AND f.period_of_report >= :since"
+        params["since"] = since
+
     rows = conn.execute(
-        text("""
+        text(f"""
         SELECT
             h.cusip,
             h.issuer_name,
@@ -79,14 +100,20 @@ def get_stock_history(
             CAST(h.value AS REAL) / NULLIF(
                 (SELECT SUM(h2.value) FROM holdings h2 WHERE h2.filing_id = f.id),
                 0
-            ) AS portfolio_weight
+            ) AS portfolio_weight,
+            ecb.avg_cost_per_share  AS estimated_avg_cost,
+            ecb.total_cost_basis    AS estimated_total_cost
         FROM holdings h
-        JOIN filings      f ON f.id = h.filing_id
-        JOIN institutions i ON i.id = f.institution_id
-        WHERE h.cusip = :cusip
+        JOIN filings      f   ON f.id = h.filing_id
+        JOIN institutions i   ON i.id = f.institution_id
+        LEFT JOIN estimated_cost_basis ecb
+               ON ecb.institution_id = i.id
+              AND ecb.cusip           = h.cusip
+              AND ecb.period          = f.period_of_report
+        WHERE h.cusip = :cusip{since_clause}
         ORDER BY f.period_of_report ASC, i.id ASC
         """),
-        {"cusip": cusip.upper()},
+        params,
     ).mappings().fetchall()
 
     if not rows:
