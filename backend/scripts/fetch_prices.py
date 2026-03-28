@@ -3,11 +3,17 @@ fetch_prices.py — Fetch and cache Yahoo Finance daily price bars for all
 known tickers into the price_history table.
 
 Usage:
+    # Standard refresh (3-year window, covers 8-quarter default):
     PYTHONPATH=. python backend/scripts/fetch_prices.py
-    PYTHONPATH=. python backend/scripts/fetch_prices.py --ticker AAPL
-    PYTHONPATH=. python backend/scripts/fetch_prices.py --years 5
+
+    # Cost-basis deep backfill (matches 40-quarter / 10-year ETL window):
+    PYTHONPATH=. python backend/scripts/fetch_prices.py --years 12
+
+    # Single ticker:
+    PYTHONPATH=. python backend/scripts/fetch_prices.py --ticker AAPL --years 12
 
 Run AFTER resolve_cusips.py so cusip_ticker_map is populated.
+Also fetches and stores stock split events (stored in stock_splits table).
 """
 
 import argparse

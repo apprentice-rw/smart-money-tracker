@@ -24,7 +24,21 @@ from backend.app.data.sec_edgar import (
     parse_holdings,
 )
 
-NUM_QUARTERS = 8  # how many quarters to backfill (2 years)
+NUM_QUARTERS = 8   # default quarters for a regular refresh (2 years)
+
+# Extended window for cost-basis-oriented rebuilds (10 years / 40 quarters).
+# Gives the rolling WAC engine enough history to find original entry events
+# for long-held positions that would otherwise show N/A.
+COST_BASIS_QUARTERS = 40
+
+# High-turnover quant-style managers where cost-basis estimates are not
+# meaningful. Skip these when running a cost-basis-oriented historical
+# rebuild (pass exclude=COST_BASIS_EXCLUDE to run_etl).
+COST_BASIS_EXCLUDE: frozenset = frozenset([
+    "Renaissance Technologies",
+    "Bridgewater Associates",
+    "Soros Fund Management",
+])
 
 
 # ---------------------------------------------------------------------------
@@ -401,14 +415,29 @@ def upsert_position_changes(
 # Main ETL
 # ---------------------------------------------------------------------------
 
-def run_etl(conn: Connection = None) -> None:
+def run_etl(conn: Connection = None, num_quarters: int = NUM_QUARTERS, exclude=None) -> None:
     """Run the full ETL pipeline.
 
-    Accepts an optional *conn* for backward-compatibility, but opens a fresh
-    engine connection per institution so long-running jobs don't time out on
-    managed databases (e.g. Supabase session-pooler).
+    Parameters
+    ----------
+    conn:
+        Accepted for backward compatibility; not used (each institution gets
+        its own fresh connection to avoid Supabase session-pooler timeouts).
+    num_quarters:
+        How many 13F quarters to backfill per institution.
+        Default: NUM_QUARTERS (8). Use COST_BASIS_QUARTERS (40) for a
+        cost-basis-oriented deep rebuild.
+    exclude:
+        Optional set/frozenset of institution names to skip entirely.
+        Use COST_BASIS_EXCLUDE to skip the three high-turnover managers that
+        produce noisy cost-basis estimates.
     """
+    skip = set(exclude) if exclude else set()
+
     for inst_name, cik in INSTITUTIONS.items():
+        if inst_name in skip:
+            print(f"\n  Skipping (excluded): {inst_name}")
+            continue
         print(f"\n{'─' * 55}")
         print(f"  Processing: {inst_name}  (CIK {cik})")
         print(f"{'─' * 55}")
@@ -417,9 +446,9 @@ def run_etl(conn: Connection = None) -> None:
             inst_id = upsert_institution(inst_conn, inst_name, cik)
             inst_conn.commit()
 
-            print(f"  Fetching last {NUM_QUARTERS} 13F-HR filings ...")
+            print(f"  Fetching last {num_quarters} 13F-HR filings ...")
             try:
-                filings = get_recent_13f_filings(cik, n=NUM_QUARTERS)
+                filings = get_recent_13f_filings(cik, n=num_quarters)
             except Exception as exc:
                 print(f"  ERROR: {exc}")
                 continue
