@@ -764,3 +764,49 @@ def test_engine_no_split_unchanged(conn):
     assert abs(q1_row["avg_cost_per_share"] - 200.0) < 0.01, (
         "No split → cost should remain $200"
     )
+
+
+def test_engine_increased_without_prior_new_bootstraps(conn):
+    """
+    Regression: when the first visible change for a position is 'increased' (not 'new'),
+    the engine must bootstrap the cost basis from quarter_buy_price rather than
+    propagating NULL forever.
+
+    This mirrors the real-world case where an institution held a stock before the
+    start of our historical window — the oldest filing has no matching position_change
+    row, so the first entry in position_changes is already 'increased'.
+    """
+    from backend.app.data.cost_basis import compute_institution_cost_basis
+
+    # Use a unique institution to avoid shared-state conflicts
+    inst_id = _seed_institution(conn, "Bootstrap Fund", "0077000001")
+    # Two consecutive filings — no "new" event, first change is "increased"
+    fid_prev = _seed_filing(conn, inst_id, "2023-12-31", "2024-02-14", "BST-Q4")
+    fid_curr = _seed_filing(conn, inst_id, "2024-03-31", "2024-05-15", "BST-Q1")
+
+    cusip  = "BSTCUSIP"
+    ticker = "BSTTK"
+    _seed_ticker(conn, cusip, ticker, "Bootstrap Co")
+    _seed_prices(conn, ticker, [
+        ("2024-01-10", 120.0, 120.0, 1_000_000),
+        ("2024-03-20", 120.0, 120.0, 1_000_000),
+    ])
+
+    # First visible change: 'increased' from 500 → 600 (no prior "new" in our DB)
+    _seed_holding(conn, fid_curr, cusip, 600, 72_000, "Bootstrap Co")
+    _seed_change(conn, inst_id, fid_prev, fid_curr, cusip, "increased",
+                 500, 600, 60_000, 72_000, 100, issuer="Bootstrap Co")
+
+    compute_institution_cost_basis(inst_id, conn)
+
+    row = _fetch_ecb(conn, inst_id, "2024-03-31", cusip=cusip)
+    assert row is not None
+    assert row["avg_cost_per_share"] is not None, (
+        "avg_cost_per_share must NOT be NULL when first visible event is 'increased' "
+        "and price data is available (bootstrap case)"
+    )
+    # The engine bootstraps by treating the full position as entered at quarter_buy_price
+    assert abs(row["avg_cost_per_share"] - 120.0) < 0.01, (
+        f"Expected bootstrap cost $120.0 (quarter VWAC), got {row['avg_cost_per_share']}"
+    )
+    assert row["price_source"] == "yahoo"

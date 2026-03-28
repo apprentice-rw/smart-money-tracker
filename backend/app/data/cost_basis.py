@@ -267,13 +267,21 @@ def compute_institution_cost_basis(institution_id: int, conn: Connection) -> int
             if effective_delta > 0:
                 # True buy (beyond what splits explain)
                 quarter_buy_price = get_quarter_price(ticker, period, conn)
-                if quarter_buy_price is not None and prev_cost is not None and curr_shares > 0:
-                    new_cost = (
-                        prev_shares * prev_cost
-                        + effective_delta * quarter_buy_price
-                    ) / curr_shares
+                if quarter_buy_price is not None and curr_shares > 0:
+                    if prev_cost is not None:
+                        # Normal WAC blend: weight old cost by prior shares, new buy at VWAC
+                        new_cost = (
+                            prev_shares * prev_cost
+                            + effective_delta * quarter_buy_price
+                        ) / curr_shares
+                    else:
+                        # Bootstrap: no prior cost recorded (position existed before our
+                        # earliest filing so the engine never saw a "new" event).
+                        # Treat the full current position as entered at quarter_buy_price.
+                        # This is the same approximation used for the "new" branch.
+                        new_cost = quarter_buy_price
                 else:
-                    # Prior cost unknown or price unavailable
+                    # Price unavailable — leave cost unknown
                     new_cost = prev_cost
             else:
                 # Split-only, hold, or partial sell: Average Cost unchanged
